@@ -1,0 +1,294 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { parseFragment } from "parse5";
+import { compileMarkdownArticle, fromLegacyArticle, renderArticleEnvelope } from "./lib/markdown-article.mjs";
+
+const rootPath = path.resolve(import.meta.dirname, "..");
+const sourcePath = "articles/sample/article.md";
+const source = fs.readFileSync(path.join(rootPath, "scripts/fixtures/markdown-article/complex.md"), "utf8");
+const context = {
+  sourcePath,
+  rootPath,
+  knownTags: ["markdown", "seguranca"],
+  knownSlugs: ["sample", "base", "outro"],
+  assetExists: asset => asset.startsWith("assets/") || asset === "articles/sample/cover.jpg"
+};
+const compiled = await compileMarkdownArticle({ source, ...context });
+
+const articleTemplate = fs.readFileSync(path.join(rootPath, "generation/templates/article.md"), "utf8");
+const taxonomy = JSON.parse(fs.readFileSync(path.join(rootPath, "generation/taxonomy/tags.json"), "utf8"));
+const fixtureTagIds = Object.keys(taxonomy.tags).slice(0, 2);
+assert.match(articleTemplate, /^---\n[\s\S]*PREENCHER/);
+await assert.rejects(() => compileMarkdownArticle({ source: articleTemplate, ...context }));
+const instantiatedTemplate = articleTemplate
+  .replace("PREENCHER: título do artigo", "Artigo de fixture")
+  .replace("PREENCHER: categoria editorial", "Teste")
+  .replace("PREENCHER: data legível", "26 de outubro de 2026")
+  .replace('publishedAt: "YYYY-MM-DD"', 'publishedAt: "2026-10-26"')
+  .replace("PREENCHER: tempo de leitura", "1 min de leitura")
+  .replace("PREENCHER: descrição objetiva da capa", "Descrição de capa de fixture")
+  .replace("PREENCHER: subtítulo curto do artigo", "Resumo do artigo de fixture")
+  .replace("PREENCHER: resumo para descoberta e busca", "Resumo para descoberta")
+  .replace("PREENCHER-TAG-CANONICA", fixtureTagIds[0])
+  .replace("PREENCHER: primeiro parágrafo em diálogo-metáfora natural, como um único parágrafo introdutório.", "Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.")
+  .replaceAll("PREENCHER: seção que explica o problema", "O problema que a ideia resolve")
+  .replace("PREENCHER: desenvolva a explicação com fontes confiáveis, exemplos e limites.", "A explicação técnica detalha exemplos e limites.")
+  .replaceAll("PREENCHER: seção de aplicação", "Como aplicar a ideia")
+  .replace("PREENCHER: explique decisões, trade-offs e relações com conceitos próximos.", "A aplicação discute decisões e relações com conceitos próximos.")
+  .replace("PREENCHER: sintetize as ideias centrais.", "As ideias centrais ficam resumidas aqui.")
+  .replace("PREENCHER: inclua perguntas que verifiquem a compreensão.", "Quais decisões ajudam a compreender o exemplo?")
+  .replace("PREENCHER: proponha dois ou três exercícios práticos ou verificáveis.", "Compare duas alternativas em um exercício curto.")
+  .replace("PREENCHER: liste fontes com links próximos às afirmações sustentadas.", "[Fonte de fixture](https://example.com).");
+const templateCompiled = await compileMarkdownArticle({ source: instantiatedTemplate, ...context, knownTags: [fixtureTagIds[0]] });
+assert.equal(templateCompiled.metadata.slug, "sample");
+assert.equal(templateCompiled.metadata.title, "Artigo de fixture");
+assert.deepEqual(templateCompiled.metadata.tags, [fixtureTagIds[0]]);
+assert.match(templateCompiled.slots.body, /^<p>Uma conversa/);
+
+assert.equal(compiled.metadata.publishedAt, "2026-10-25");
+assert.deepEqual(compiled.metadata.tags, ["markdown", "seguranca"]);
+assert.match(compiled.slots.heading, /<span lang="pt-BR">Título: <\/span><span lang="en-US" data-tts-say="secure">seguro<\/span>/);
+assert.equal(compiled.slots.dek, '<span lang="pt-BR">Uma introdução clara</span>');
+assert.match(compiled.slots.body, /^<p>Uma conversa/);
+assert.match(compiled.slots.body, /<p><a name="âncora-antiga"><\/a><\/p>\n<h2 id="uma-seção">Uma seção<\/h2>/);
+assert.match(compiled.slots.body, /class="article-table-scroll" tabindex="0" role="region" aria-label=/);
+assert.match(compiled.slots.body, /<div class="article-callout"><p><span lang="en-US" data-tts-say="mark down">Markdown<\/span>/);
+assert.match(compiled.slots.body, /src="assets\/sample\/example.png"/);
+assert.match(compiled.slots.body, /srcset="assets\/sample\/thumb.png\?variant=small#preview 1x, assets\/sample\/caf%C3%A9.png\?variant=large#preview 2x"/);
+assert.match(compiled.slots.body, /srcset="assets\/sample\/width-small.png 320w, assets\/sample\/width-large.png 640w"/);
+assert.match(compiled.slots.body, /href="outro\/#intro"/);
+assert.match(compiled.slots.body, /<figure class="mermaid-figure"><div class="mermaid-diagram" data-mermaid="true" data-mermaid-label="Fluxo de compilação"><pre class="mermaid-source">/);
+assert.match(compiled.slots.body, /<figcaption>O fluxo <span lang="pt-BR">separa fonte<\/span> e HTML\.<\/figcaption>/);
+assert.match(compiled.slots.body, /<details class="mermaid-fallback">\s*<summary lang="pt-BR">Descrição alternativa<\/summary>/);
+assert.match(compiled.slots.body, /O Markdown é transformado em HTML por uma etapa de compilação separada\./);
+assert.equal((compiled.slots.body.match(/<figcaption>/g) ?? []).length, 1);
+const legacyMermaid = source.replace(/<!-- site:mermaid \{"label":"Fluxo de compilação"\} -->[\s\S]*?<\/details>/, '<!-- diagram: {"label":"Fluxo de compilação","caption":"Legenda antiga.","fallback":"fallback antigo"} -->\n```mermaid\nflowchart LR\n A --> B\n```');
+const legacyMermaidCompiled = await compileMarkdownArticle({ source: legacyMermaid, ...context });
+assert.match(legacyMermaidCompiled.slots.body, /<figcaption>Legenda antiga\.<\/figcaption>/);
+assert.match(legacyMermaidCompiled.slots.body, /fallback antigo/);
+function findNode(node, predicate) {
+  if (predicate(node)) return node;
+  for (const child of node.childNodes ?? []) {
+    const found = findNode(child, predicate);
+    if (found) return found;
+  }
+  return null;
+}
+function nodeText(node) {
+  if (node.nodeName === "#text") return node.value;
+  return (node.childNodes ?? []).map(nodeText).join("");
+}
+for (const trailingNewlines of [0, 1, 2]) {
+  const originalDiagram = `flowchart LR\n  A --> B${"\n".repeat(trailingNewlines)}`;
+  const canonicalMermaid = source.replace(/<!-- site:mermaid \{"label":"Fluxo de compilação"\} -->[\s\S]*?<\/details>/, `<!-- site:mermaid {"label":"LF ${trailingNewlines}"} -->\n\n\`\`\`mermaid\n${originalDiagram}\n\`\`\`\n\n<figcaption>Legenda de teste.</figcaption>\n\n<details class="mermaid-fallback"><summary>Alternativa</summary>Texto do fallback.</details>`);
+  const exactCompiled = await compileMarkdownArticle({ source: canonicalMermaid, ...context });
+  const root = parseFragment(exactCompiled.slots.body);
+  const pre = findNode(root, node => node.tagName === "pre" && node.attrs?.some(attr => attr.name === "class" && attr.value === "mermaid-source"));
+  assert.ok(pre, `Mermaid source pre exists for ${trailingNewlines} terminal LF`);
+  assert.equal(nodeText(pre), originalDiagram, `canonical Mermaid source preserves exactly ${trailingNewlines} terminal LF`);
+}
+const secondMermaidSource = `${source}\n\n<!-- site:mermaid {"label":"Segundo fluxo"} -->\n\n\`\`\`mermaid\nflowchart LR\n  C --> D\n\`\`\`\n\n<figcaption>Segunda legenda.</figcaption>\n\n<details class="mermaid-fallback"><summary>Alternativa</summary>Texto alternativo distinto.</details>\n`;
+const secondMermaidCompiled = await compileMarkdownArticle({ source: secondMermaidSource, ...context });
+assert.equal((secondMermaidCompiled.slots.body.match(/<figure class="mermaid-figure">/g) ?? []).length, 2);
+assert.match(secondMermaidCompiled.slots.body, /data-mermaid-label="Segundo fluxo"[\s\S]*?<figcaption>Segunda legenda\.<\/figcaption><details class="mermaid-fallback"><summary>Alternativa<\/summary>Texto alternativo distinto\.<\/details>/);
+const wrappedMermaid = source.replace('<!-- site:mermaid {"label":"Fluxo de compilação"} -->', '<div class="fgs-guide">\n\n<!-- site:mermaid {"label":"Fluxo de compilação"} -->').replace('</details>\n\n[Ir para a âncora', '</details>\n\n</div>\n\n[Ir para a âncora');
+const wrappedMermaidCompiled = await compileMarkdownArticle({ source: wrappedMermaid, ...context });
+assert.match(wrappedMermaidCompiled.slots.body, /<div class="fgs-guide">[\s\S]*?<figure class="mermaid-figure">[\s\S]*?<\/figure>[\s\S]*?<\/div>/);
+const alignedTable = await compileMarkdownArticle({
+  source: `${source}\n| A | B |\n| :--- | ---: |\n| 1 | 2 |\n`,
+  ...context
+});
+assert.match(alignedTable.slots.body, /class="article-table-scroll" tabindex="0" role="region" aria-label="[^"]+"><table><thead><tr><th align="left">A<\/th><th align="right">B<\/th>/);
+const footnote = await compileMarkdownArticle({ source: `${source}\nUma nota[^x].\n\n[^x]: Texto da nota.\n`, ...context });
+assert.match(footnote.slots.body, /<sup><a href="#user-content-fn-x" id="user-content-fnref-x" data-footnote-ref="" aria-describedby="footnote-label">1<\/a><\/sup>/);
+assert.match(footnote.slots.body, /<section data-footnotes="" class="footnotes"><h2 class="sr-only" id="footnote-label">Footnotes<\/h2>/);
+assert.match(footnote.slots.body, /class="data-footnote-backref"/);
+const externalLink = await compileMarkdownArticle({ source: `${source}\n[Site](https://example.com/pic.jpg)\n`, ...context });
+assert.match(externalLink.slots.body, /href="https:\/\/example\.com\/pic\.jpg"/);
+const shellNavigation = await compileMarkdownArticle({
+  source: `${source}\n\n<a href="index.html#recent-posts">Voltar à lista</a>\n[Outro artigo](article.html?slug=outro#intro)\n`,
+  ...context
+});
+assert.match(shellNavigation.slots.body, /href="index\.html#recent-posts"/);
+assert.match(shellNavigation.slots.body, /href="article\.html\?slug=outro#intro"/);
+const inlineHtmlOpening = await compileMarkdownArticle({
+  source: source.replace("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "Uma conversa começa com <span lang=\"pt-BR\">uma observação</span> cotidiana e apresenta o conceito sem depender de outro bloco."),
+  ...context
+});
+assert.match(inlineHtmlOpening.slots.body, /^<p>Uma conversa começa com <span lang="pt-BR">uma observação<\/span> cotidiana/);
+const inlineHtmlButtonOpening = await compileMarkdownArticle({
+  source: source.replace("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "Uma conversa começa com <button type=\"button\">Play</button> uma observação cotidiana e apresenta o conceito sem depender de outro bloco."),
+  ...context
+});
+assert.match(inlineHtmlButtonOpening.slots.body, /^<p>Uma conversa começa com <button type="button">Play<\/button> uma observação/);
+const inlineLinkOpening = await compileMarkdownArticle({
+  source: source.replace("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "Uma conversa começa com uma [observação](../outro/article.md) cotidiana e apresenta o conceito sem depender de outro bloco."),
+  ...context
+});
+assert.match(inlineLinkOpening.slots.body, /Uma conversa começa com uma <a href="outro\/">observação<\/a> cotidiana/);
+const multilingualUnicodeOpening = await compileMarkdownArticle({
+  source: source.replace("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<span lang="en-US">A conversation</span> começa aqui com ação e 🙂.'),
+  ...context
+});
+assert.match(multilingualUnicodeOpening.slots.body, /<span lang="en-US">A conversation<\/span> começa aqui com ação e 🙂\./);
+const componentAfterOpening = await compileMarkdownArticle({ source: `${source}\n<button type="button">Play</button>\n`, ...context });
+assert.match(componentAfterOpening.slots.body, /<button type="button">Play<\/button>/);
+const labelAssociation = await compileMarkdownArticle({ source: `${source}\n<label for="simulator-input">Valor</label>\n`, ...context });
+assert.match(labelAssociation.slots.body, /<label for="simulator-input">Valor<\/label>/);
+const activeRange = await compileMarkdownArticle({
+  source: `${source}\n<input id="range-test" type="range" min="0" max="10" value="5">\n`,
+  ...context
+});
+assert.match(activeRange.slots.body, /<input[^>]*id="range-test"[^>]*type="range"[^>]*>/);
+assert.doesNotMatch(activeRange.slots.body, /<input[^>]*id="range-test"[^>]*disabled/);
+const envelope = renderArticleEnvelope(compiled, { buildId: "build-2026-10-25" });
+assert.match(envelope, /^<article data-article-format="html-v1" data-article-slug="sample" data-build-id="build-2026-10-25"><h1 data-article-slot="heading">/);
+assert.equal((envelope.match(/data-article-slot="heading"/g) ?? []).length, 1);
+assert.equal((envelope.match(/data-article-slot="dek"/g) ?? []).length, 1);
+assert.equal((envelope.match(/data-article-slot="body"/g) ?? []).length, 1);
+const envelopeDom = parseFragment(envelope);
+const article = envelopeDom.childNodes.find(node => node.tagName === "article");
+assert.equal(article.attrs.find(attr => attr.name === "data-article-format").value, "html-v1");
+const headingSlot = article.childNodes.find(node => node.tagName === "h1" && node.attrs.some(attr => attr.value === "heading"));
+const dekSlot = article.childNodes.find(node => node.tagName === "p" && node.attrs.some(attr => attr.value === "dek"));
+const bodySlot = article.childNodes.find(node => node.tagName === "section" && node.attrs.some(attr => attr.value === "body"));
+assert.ok(headingSlot && dekSlot && bodySlot);
+const firstBodyElements = bodySlot.childNodes.filter(node => node.tagName);
+assert.equal(firstBodyElements[0]?.tagName, "p", "compiled article starts with the single opening prose paragraph");
+assert.equal(firstBodyElements[1]?.tagName, "nav", "table of contents follows the opening paragraph in v2");
+assert.equal(firstBodyElements[2]?.tagName, "p", "explicit anchor container follows the table of contents");
+assert.equal(firstBodyElements[3]?.tagName, "h2", "first section heading follows the explicit anchor");
+const headings = [];
+const anchors = [];
+const links = [];
+const visit = node => { if (node.tagName === "h2" && node.attrs.some(attr => attr.name === "id" && attr.value === "uma-seção")) headings.push(node); if (node.tagName === "a" && node.attrs.some(attr => attr.name === "name" && attr.value === "âncora-antiga")) anchors.push(node); if (node.tagName === "a") links.push(node); for (const child of node.childNodes ?? []) visit(child); };
+visit(bodySlot);
+assert.equal(headings.length, 1, "heading receives GitHub slug ID");
+assert.equal(anchors.length, 1, "explicit Unicode named anchor is preserved");
+assert.ok(links.some(node => decodeURIComponent(node.attrs.find(attr => attr.name === "href")?.value ?? "") === "#âncora-antiga"), "Unicode fragment link resolves to the preserved ID");
+
+const mutate = (needle, replacement) => source.replace(needle, replacement);
+const mutateAll = (needle, replacement) => source.replaceAll(needle, replacement);
+const failures = [
+  ["duplicate YAML key", mutate("category: Fundamentos", "category: Repetido\ncategory: Fundamentos"), /duplicate key|unique/i],
+  ["unsafe YAML alias", mutate("tags: [markdown, seguranca]", "defaults: &defaults [markdown]\ntags: *defaults"), /alias|anchor/i],
+  ["unsafe YAML custom tag", mutate("category: Fundamentos", "category: Fundamentos\nextra: !unsafe value"), /YAML|tag/i],
+  ["deep YAML nesting", mutate("category: Fundamentos", `category: Fundamentos\nextra: ${"[".repeat(50)}x${"]".repeat(50)}`), /YAML|level|unsafe|nesting/i],
+  ["unknown metadata", mutate("category: Fundamentos", "category: Fundamentos\ncustomField: value"), /unknown metadata field/],
+  ["unknown tag ID", mutate("tags: [markdown, seguranca]", "tags: [missing-tag]"), /unknown tag ID/],
+  ["invalid calendar date", mutate("publishedAt: 2026-10-25", "publishedAt: 2026-02-30"), /real ISO/],
+  ["missing tags", mutate("tags: [markdown, seguranca]\n", ""), /tags/],
+  ["heading before prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "## Antes da prosa\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco."), /first content block/],
+  ["standalone button paragraph before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<button type="button">Play</button>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["nested standalone button paragraph before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<strong><button type="button">Play</button></strong>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["standalone button with quoted greater-than attribute before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<button type="button" title="1 > 0">Play</button>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["standalone void input component before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<input type="text" aria-label="Busca">\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /component cannot precede|standalone HTML component/],
+  ["standalone line break before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<br>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /component cannot precede|standalone HTML component/],
+  ["standalone label paragraph before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<label for="search">Buscar</label>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["standalone span paragraph before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<span class="article-back">Voltar</span>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["navigation anchor before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<a class="article-back" href="./outro.md">Voltar aos artigos</a>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["role button anchor before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<a role="button" href="./outro.md">Começar</a>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["wrapped navigation anchor before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<strong><a class="article-back" href="./outro.md">Voltar aos artigos</a></strong>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["leading button before prose in same paragraph", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<button type="button">Play</button> Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["zero-width text cannot make a leading button prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '\u200b<button type="button">Play</button>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /HTML component/],
+  ["raw HTML image before opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", '<p><img src="../../assets/sample/example.png" alt="Antes da abertura"></p>\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.'), /image or component cannot precede/],
+  ["body h1 duplicates envelope hierarchy", mutate("## Uma seção", "# Uma seção"), /only h1/],
+  ["raw HTML body h1 duplicates envelope hierarchy", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.\n\n<h1>Título duplicado</h1>"), /only h1/],
+  ["nested raw HTML body h1 duplicates envelope hierarchy", mutate("<div class=\"article-callout\">", "<div class=\"article-callout\"><h1>Título duplicado</h1>"), /only h1/],
+  ["shell prefix ID recording-play", mutateAll("âncora-antiga", "recording-play"), /reserved|unsafe/],
+  ["raw HTML shell ID recording-play", mutate("<div class=\"article-callout\">", '<p id="recording-play">Control</p>\n\n<div class="article-callout">'), /reserved|unsafe/],
+  ["reserved browser ID mixed case", mutateAll("âncora-antiga", "CurrentScript"), /reserved|unsafe/],
+  ["reserved browser ID NFKC fullwidth", mutateAll("âncora-antiga", "ｃｕｒｒｅｎｔＳｃｒｉｐｔ"), /reserved|unsafe/],
+  ["shell prefix ID NFKC fullwidth collision", mutateAll("âncora-antiga", "ｒｅｃｏｒｄｉｎｇ-play"), /reserved|unsafe/],
+  ["image in opening prose", mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", "![Capa](../../assets/sample/cover.jpg) Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco."), /first prose paragraph cannot contain an image/],
+  ["HTML script", mutate("<div class=\"article-callout\">", "<script>alert(1)</script>\n\n<div class=\"article-callout\">"), /forbidden|not allowed/i],
+  ["event attribute", mutate("class=\"article-callout\"", "class=\"article-callout\" onclick=\"alert(1)\""), /event handler/],
+  ["malformed raw HTML table alignment", `${source}\n<table><tr><th align="justify">A</th></tr></table>\n`, /table alignment must be left, center or right/],
+  ["remote image remains rejected beside valid external link", `${source}\n[Site](https://example.com/pic.jpg)\n\n<img src="https://example.com/pic.jpg" alt="Remote">\n`, /remote image URLs are not permitted/],
+  ["remote raw image is rejected without a link", `${source}\n<img src="https://example.com/pic.jpg" alt="Remote">\n`, /remote image URLs are not permitted/],
+  ["raw image fragment URL is rejected while link fragments remain valid", `${source}\n<img src="#âncora-antiga" alt="Fragment">\n`, /images cannot use fragment-only URLs/],
+  ["obfuscated URL", mutate("../../assets/sample/example.png", "j%61vascript%3Aalert(1)"), /unsafe URL/],
+  ["encoded path escape", mutate("../../assets/sample/example.png", "%252e%252e/%252e%252e/private.png"), /escapes repository|beneath assets/],
+  ["srcset unsafe URL", mutate("../../assets/sample/thumb.png?variant=small#preview 1x", "j%61vascript%3Aalert(1) 1x"), /unsafe URL/],
+  ["srcset invalid descriptor", mutate("640w", "0w"), /invalid srcset descriptor/],
+  ["srcset duplicate descriptor", mutate("width-large.png 640w", "width-large.png 320w"), /duplicate srcset descriptor/],
+  ["srcset encoded path escape", mutate("../../assets/sample/thumb.png?variant=small#preview 1x", "%252e%252e/%252e%252e/private.png 1x"), /escapes repository|beneath assets/],
+  ["missing image alt", mutate("![Diagrama de exemplo](../../assets/sample/example.png)", "![](../../assets/sample/example.png)"), /alt/],
+  ["unmarked Mermaid", mutate('<!-- site:mermaid {"label":"Fluxo de compilação"} -->\n', "## Sem contexto\n\n"), /Mermaid requires preceding textual context/],
+  ["canonical Mermaid without caption", mutate('<figcaption>O fluxo <span lang="pt-BR">separa fonte</span> e HTML.</figcaption>\n\n', ""), /requires an adjacent non-empty figcaption/],
+  ["canonical Mermaid caption event handler", mutate('<figcaption>O fluxo <span lang="pt-BR">separa fonte</span> e HTML.</figcaption>', '<figcaption onclick="alert(1)">Legenda</figcaption>'), /event handler|unsafe|not allowed/i],
+  ["canonical Mermaid caption executable URL", mutate('<span lang="pt-BR">separa fonte</span>', '<a href="javascript:alert(1)">separa fonte</a>'), /unsafe URL|protocol|not allowed/i],
+  ["canonical Mermaid fallback event handler", mutate('<details class="mermaid-fallback">', '<details class="mermaid-fallback" onmouseover="alert(1)">'), /event handler|unsafe|not allowed/i],
+  ["canonical Mermaid fallback executable URL", mutate('O Markdown é transformado em HTML por uma etapa de compilação separada.', '<a href="javascript:alert(1)">fallback</a>'), /unsafe URL|protocol|not allowed/i],
+  ["canonical Mermaid empty fallback", mutate('<details class="mermaid-fallback">\n<summary lang="pt-BR">Descrição alternativa</summary>\nO Markdown é transformado em HTML por uma etapa de compilação separada.\n</details>', '<details class="mermaid-fallback">\n<summary lang="pt-BR">Descrição alternativa</summary>\n</details>'), /non-empty fallback content/],
+  ["orphan Mermaid metadata", mutate("```mermaid", "texto intermediário\n\n```mermaid"), /immediately precede|adjacent/],
+  ["duplicate Mermaid JSON key", mutate('{"label":"Fluxo de compilação"}', '{"label":"A","label":"B"}'), /diagram metadata/],
+  ["diagram metadata injection", mutate('"label":"Fluxo de compilação"', '"label":"<script>"'), /diagram metadata/],
+  ["Mermaid init directive", mutate("flowchart LR\n  A[Markdown] --> B[HTML]", '%%{init: {"securityLevel":"loose"}}%%\nflowchart LR\n  A[Markdown] --> B[HTML]'), /init directives/],
+  ["Mermaid click interaction", mutate("flowchart LR\n  A[Markdown] --> B[HTML]", 'flowchart LR\nclick A "javascript:alert(1)"\n  A[Markdown] --> B[HTML]'), /click interactions/],
+  ["Mermaid trailing click interaction", mutate("flowchart LR\n  A[Markdown] --> B[HTML]", 'flowchart LR\n  A[Markdown] --> B[HTML]\nclick A "https://example.org"'), /click interactions/],
+  ["Mermaid click word in node label remains valid", mutate("A[Markdown]", "A[click label]"), null],
+  ["ID collision", mutate('<div class="article-callout">', '<p id="dup">A</p>\n\n<p id="dup">B</p>\n\n<div class="article-callout">'), /duplicate, reserved or unsafe HTML id|ID collision/]
+];
+failures.push(...[
+  ["strong role button before opening prose", '<strong role="button">Play</strong>', /HTML component/],
+  ["wrapped formula class before opening prose", '<strong><span class="fgs-formula">x + y</span></strong>', /HTML component/],
+  ...[["U+200B", "\u200B"], ["U+200C", "\u200C"], ["U+200D", "\u200D"], ["U+2060", "\u2060"], ["U+202A", "\u202A"]].map(([codePoint, invisible]) => [
+    `invisible-only opening paragraph ${codePoint} before a button is rejected`,
+    `<p>${invisible}</p>\n\n<button type="button">Play</button>`,
+    /prose paragraph|HTML component/
+  ])
+].map(([name, prefix, expected]) => [
+  name,
+  mutate("Uma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.", `${prefix}\n\nUma conversa começa com uma observação cotidiana e apresenta o conceito sem depender de outro bloco.`),
+  expected
+]));
+for (const [name, invalidSource, expected] of failures) {
+  if (expected === null) {
+    await compileMarkdownArticle({ source: invalidSource, ...context });
+    continue;
+  }
+  await assert.rejects(() => compileMarkdownArticle({ source: invalidSource, ...context }), error => {
+    assert.match(error.message, expected, name);
+    return true;
+  }, name);
+}
+await assert.rejects(() => compileMarkdownArticle({ source: mutateAll("âncora-antiga", "article-body"), ...context }), /reserved|unsafe/);
+await assert.rejects(() => compileMarkdownArticle({ source: mutateAll("âncora-antiga", "constructor"), ...context }), /reserved|unsafe/);
+await assert.rejects(() => compileMarkdownArticle({ source: mutate("[Ir para a âncora preservada](#âncora-antiga)", "[Ir para a âncora preservada](#nao-existe)"), ...context }), /fragment does not match/);
+const shellIds = new Set();
+const collectIds = node => { for (const attr of node.attrs ?? []) if (attr.name === "id") shellIds.add(attr.value); for (const child of node.childNodes ?? []) collectIds(child); };
+collectIds(parseFragment(fs.readFileSync(path.join(rootPath, "article.html"), "utf8")));
+for (const filename of ["article.js", "audio.js", "speech.js"]) {
+  const code = fs.readFileSync(path.join(rootPath, filename), "utf8");
+  for (const match of code.matchAll(/querySelector\(\s*["']#([\w-]+)["']\s*\)/g)) shellIds.add(match[1]);
+}
+for (const id of shellIds) {
+  await assert.rejects(() => compileMarkdownArticle({ source: mutateAll("âncora-antiga", id), ...context }), /reserved|unsafe/, `shell-owned ID ${id} cannot be claimed by content`);
+}
+await assert.rejects(() => compileMarkdownArticle({ source, sourcePath, rootPath, knownSlugs: context.knownSlugs, assetExists: context.assetExists }), /knownTags registry/);
+await assert.rejects(() => compileMarkdownArticle({ source: mutate("prerequisites: [base]", "prerequisites: [missing]"), ...context }), /unknown prerequisite slug/);
+await assert.rejects(() => compileMarkdownArticle({ source: mutate('<a name="âncora-antiga"></a>', '<a name="café"></a>\n\n<a name="café"></a>'), ...context }), /duplicate|reserved|unsafe/);
+await assert.rejects(() => compileMarkdownArticle({ source, ...context, assetExists: asset => asset !== "assets/sample/café.png" }), /asset does not exist/);
+await assert.rejects(() => compileMarkdownArticle({ source, sourcePath, rootPath, knownTags: context.knownTags, knownSlugs: context.knownSlugs }), /cover asset does not exist/);
+
+const legacy = {
+  slug: "legacy", language: "pt-BR", title: "Artigo legado", category: "Fundamentos",
+  date: "25 de outubro de 2026", publishedAt: "2026-10-25", read: "3 min",
+  image: "assets/legacy/cover.jpg", alt: "Capa", dek: "Abertura", excerpt: "Resumo",
+  bodyHtml: '<p>Primeiro parágrafo.</p><table><tr><th>A</th></tr><tr><td>B</td></tr></table>'
+};
+const adapted = fromLegacyArticle(legacy, { rootPath, assetExists: () => true });
+assert.equal(adapted.metadata.tags, undefined);
+assert.match(adapted.slots.body, /^<p>Primeiro parágrafo\.<\/p>/);
+assert.throws(() => fromLegacyArticle({ ...legacy, bodyHtml: '<p onclick="alert(1)">X</p>' }, { rootPath, assetExists: () => true }), /event attribute/);
+assert.throws(() => fromLegacyArticle({ ...legacy, bodyHtml: "<p>Abertura.</p><h1>Duplicado</h1>" }, { rootPath, assetExists: () => true }), /body must not contain h1/);
+
+assert.equal(fs.existsSync(path.join(rootPath, "content/articles")), false,
+  "the retired content/articles directory must not exist in the single self-contained layout");
+const articleDirs = fs.readdirSync(path.join(rootPath, "articles"), { withFileTypes: true }).map(entry => entry.name);
+assert.deepEqual(articleDirs, ["introducao-ao-editorial"], "the template ships the single introducao-ao-editorial example article");
+assert.equal(fs.existsSync(path.join(rootPath, "articles/introducao-ao-editorial/article.md")), true);
+
+console.log(`markdown article compiler: ${failures.length} table-driven negative cases + guard checks + complex fixture + Markdown-only source inventory passed`);

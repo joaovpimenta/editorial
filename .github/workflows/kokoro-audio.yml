@@ -1,0 +1,623 @@
+name: Publish Editorial audio (Kokoro Dora)
+
+on:
+  workflow_call:
+    inputs:
+      generate_audio:
+        type: boolean
+        required: false
+        default: false
+      before_sha:
+        type: string
+        required: false
+        default: ""
+      after_sha:
+        type: string
+        required: false
+        default: ""
+      expected_build_id:
+        type: string
+        required: false
+        default: ""
+      article:
+        type: string
+        required: false
+        default: ""
+      mode:
+        type: string
+        required: false
+        default: publish
+      replace_existing:
+        type: boolean
+        required: false
+        default: false
+      all_articles:
+        type: boolean
+        required: false
+        default: false
+      refresh_existing:
+        # Only changed narration after successful Pages deploy may refresh a Release.
+        type: boolean
+        required: false
+        default: false
+  workflow_dispatch:
+    inputs:
+      generate_audio:
+        description: "Generate audio"
+        type: boolean
+        required: false
+        default: false
+      article:
+        description: "Título ou slug (ex.: introducao-ao-editorial); vazio = mais recente"
+        type: string
+        required: false
+        default: ""
+      mode:
+        description: "preview: trecho curto; review: artigo integral sem Release; compare: 9 versões; publish: Release"
+        type: choice
+        required: true
+        default: preview
+        options:
+          - preview
+          - review
+          - compare
+          - publish
+      replace_existing:
+        description: "Substituir MP3 de Release existente? Apenas no modo publish"
+        type: boolean
+        required: false
+        default: false
+      all_articles:
+        description: "Backfill completo: 18 artigos; exige publish e replace_existing=true"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  select:
+    # Only refresh changed speech in an existing article after a successful
+    # Pages deploy on main. Manual, backfill and new-article synthesis remain off.
+    if: ${{ inputs.generate_audio == true && inputs.refresh_existing == true && github.event_name == 'push' && github.ref == 'refs/heads/main' && inputs.before_sha != '' && inputs.after_sha != '' && inputs.expected_build_id != '' && inputs.replace_existing == true }}
+    name: Select article(s)
+    runs-on: ubuntu-latest
+    outputs:
+      slugs: ${{ steps.resolve.outputs.slugs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.after_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install the compiler toolchain
+        run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - name: Validate the deployed revision and HTML artifact
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ inputs.before_sha }}
+          AFTER_SHA: ${{ inputs.after_sha }}
+          EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$AFTER_SHA" = "$GITHUB_SHA"
+          current_main="$(gh api "repos/$GH_REPO/commits/main" --jq '.sha')"
+          test "$current_main" = "$AFTER_SHA"
+          node scripts/validate-site.mjs
+          node scripts/build-site.mjs
+          python tools/tts/article_selection.py \
+            --verify-artifact --after "$AFTER_SHA" --build-id "$EXPECTED_BUILD_ID"
+          python tools/tts/article_selection.py \
+            --before "$BEFORE_SHA" --after "$AFTER_SHA" --spoken-changes >/dev/null
+      - name: Select article by name, recent publication or new push
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_ARTICLE: ${{ inputs.article }}
+          BEFORE_SHA: ${{ inputs.before_sha }}
+          AFTER_SHA: ${{ inputs.after_sha }}
+          SELECT_MODE: ${{ inputs.mode || 'publish' }}
+          BACKFILL_ALL: ${{ inputs.all_articles || 'false' }}
+          REFRESH_EXISTING: ${{ inputs.refresh_existing || 'false' }}
+          REPLACE_EXISTING: ${{ inputs.replace_existing || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$REFRESH_EXISTING" = true ]; then
+            test "$EVENT_NAME" = push && test "$SELECT_MODE" = publish
+            test "$REPLACE_EXISTING" = true
+            test -n "$BEFORE_SHA" && test -n "$AFTER_SHA"
+            slugs="$(python tools/tts/article_selection.py --before "$BEFORE_SHA" --after "$AFTER_SHA" --spoken-changes)"
+            echo "Narration changes selected: $slugs" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$BACKFILL_ALL" = true ]; then
+            if [ "$SELECT_MODE" != publish ] || [ "$REPLACE_EXISTING" != true ]; then
+              echo "Backfill requires mode=publish and replace_existing=true." >&2
+              exit 1
+            fi
+            slugs="$(python tools/tts/article_selection.py --all)"
+            # Resume safely: skip existing v2 Releases; v1 and missing remain stale.
+            pending='[]'
+            while IFS= read -r slug; do
+              body="$(gh release view "tts-$slug" --json body --jq '.body' 2>/dev/null || true)"
+              if grep -Eq '"version":[[:space:]]*2' <<< "$body"; then
+                echo "CURRENT $slug: v2 already published." >> "$GITHUB_STEP_SUMMARY"
+              else
+                pending="$(jq -nc --argjson current "$pending" --arg slug "$slug" '$current + [$slug]')"
+              fi
+            done < <(jq -r '.[]' <<< "$slugs")
+            slugs="$pending"
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            slugs="$(python tools/tts/article_selection.py --article "$MANUAL_ARTICLE")"
+          elif [ -n "$MANUAL_ARTICLE" ]; then
+            slugs="$(python tools/tts/article_selection.py --article "$MANUAL_ARTICLE")"
+          else
+            test -n "$BEFORE_SHA" && test -n "$AFTER_SHA"
+            slugs="$(python tools/tts/article_selection.py --before "$BEFORE_SHA" --after "$AFTER_SHA")"
+          fi
+          # Release exists? Don't even schedule an audio matrix job. Explicit
+          # preview/review and replace_existing=true remain allowed.
+          if [ "$SELECT_MODE" = publish ] && [ "$REPLACE_EXISTING" != true ]; then
+            selected='[]'
+            while IFS= read -r slug; do
+              if gh release view "tts-$slug" >/dev/null 2>&1; then
+                echo "SKIP $slug: MP3 Release already exists." >> "$GITHUB_STEP_SUMMARY"
+              else
+                selected="$(jq -nc --argjson existing "$selected" --arg slug "$slug" '$existing + [$slug]')"
+              fi
+            done < <(jq -r '.[]' <<< "$slugs")
+            slugs="$selected"
+          fi
+          echo "slugs=$slugs" >> "$GITHUB_OUTPUT"
+          echo "Eligible for audio work: $slugs" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Share the validated HTML artifact with the audio job
+        uses: actions/upload-artifact@v4
+        with:
+          name: editorial-html-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+
+  audio:
+    name: Dora ${{ matrix.slug }} (${{ inputs.mode || 'publish' }})
+    needs: select
+    if: needs.select.outputs.slugs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        slug: ${{ fromJSON(needs.select.outputs.slugs) }}
+    concurrency:
+      group: editorial-kokoro-${{ matrix.slug }}
+      cancel-in-progress: false
+    env:
+      ARTICLE_SLUG: ${{ matrix.slug }}
+      MODE: ${{ inputs.mode || 'publish' }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing || 'false' }}
+      AFTER_SHA: ${{ inputs.after_sha }}
+      EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OMP_NUM_THREADS: "4"
+      OPENBLAS_NUM_THREADS: "4"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.after_sha || github.sha }}
+      - name: Download the validated HTML artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: editorial-html-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist
+      - name: Validate publishing policy
+        id: policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$MODE" in preview|review|compare|publish) ;; *) echo "Invalid mode: $MODE" >&2; exit 1;; esac
+          if [ "$MODE" = compare ] && [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            echo "A/B compare is manual-only and must never run after a site deploy." >&2
+            exit 1
+          fi
+          skip=false
+          if [ "$MODE" = publish ]; then
+            release_exists=false
+            body=""
+            if body="$(gh release view "tts-$ARTICLE_SLUG" --json body --jq '.body' 2>/dev/null)"; then
+              release_exists=true
+            fi
+            if [ "$REPLACE_EXISTING" = true ] && [ -n "$AFTER_SHA" ] && [ -n "$EXPECTED_BUILD_ID" ]; then
+              marker="<!-- SITE_ARTIFACT_V1 $AFTER_SHA $EXPECTED_BUILD_ID -->"
+              if grep -Fq -- "$marker" <<< "$body"; then
+                skip=true
+                echo "Artifact $EXPECTED_BUILD_ID already has a Release for $ARTICLE_SLUG."
+              fi
+            elif [ "$REPLACE_EXISTING" != true ] && [ "$release_exists" = true ]; then
+              skip=true
+              echo "Existing release preserved (choose replace_existing=true to regenerate)."
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        if: steps.policy.outputs.skip != 'true'
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: .python-version
+
+      - name: Recheck source and artifact before expensive audio work
+        if: steps.policy.outputs.skip != 'true'
+        shell: bash
+        env:
+          AFTER_SHA: ${{ inputs.after_sha }}
+          EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$AFTER_SHA" = "$GITHUB_SHA"
+          test "$(gh api "repos/$GH_REPO/commits/main" --jq '.sha')" = "$AFTER_SHA"
+          python tools/tts/article_selection.py \
+            --verify-artifact --after "$AFTER_SHA" --build-id "$EXPECTED_BUILD_ID"
+
+      - name: Install lean CPU-only Kokoro and eSpeak
+        if: steps.policy.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends espeak-ng libespeak-ng1 ffmpeg
+          python -m pip install "kokoro-onnx==0.6.1" "misaki-fork==0.9.6" \
+            "phonemizer-fork==3.3.2" "espeakng-loader==0.2.4" "soundfile==0.13.1"
+          command -v ffmpeg
+          command -v ffprobe
+
+      - name: Cache Kokoro FP32 and Dora voicepack
+        if: steps.policy.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/kokoro
+          key: kokoro-v1.0-fp32-voices-model-files-v1.1
+
+      - name: Download model only if missing
+        if: steps.policy.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/kokoro
+          base="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1"
+          for file in kokoro-v1.0.onnx voices-v1.0.bin; do
+            if [ ! -s ".cache/kokoro/$file" ]; then
+              curl --fail --location --retry 3 --silent --show-error \
+                "$base/$file" -o ".cache/kokoro/$file"
+            fi
+          done
+          test "$(stat -c '%s' .cache/kokoro/kokoro-v1.0.onnx)" -gt 250000000
+          test "$(stat -c '%s' .cache/kokoro/voices-v1.0.bin)" -gt 20000000
+
+      - name: Extract PT-BR and EN-US language spans
+        if: steps.policy.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = compare ]; then
+            echo "Comparison is title plus first metaphor paragraph, with 3 Dora speeds and 3 prosodies."
+          elif [ "$MODE" = preview ]; then
+            python tools/tts/kokoro_release.py prepare \
+              --slug "$ARTICLE_SLUG" --max-chars 1200 --output-dir .audio
+          else
+            python tools/tts/kokoro_release.py prepare \
+              --slug "$ARTICLE_SLUG" --output-dir .audio
+          fi
+
+      - name: Generate single-voice mixed-language WAV and MP3
+        if: steps.policy.outputs.skip != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = compare ]; then
+            time python tools/tts/kokoro_release.py compare \
+              --slug "$ARTICLE_SLUG" --output-dir .audio/compare \
+              --model .cache/kokoro/kokoro-v1.0.onnx \
+              --voices .cache/kokoro/voices-v1.0.bin
+            # Normalize the equilibrado-100 reference ONCE, then encode all
+            # variants from identical normalized PCM (no extra ONNX inference).
+            source=".audio/compare/equilibrado-100/$ARTICLE_SLUG"
+            ffmpeg -hide_banner -loglevel error -y \
+              -i "$source.wav" -af "loudnorm=I=-19:TP=-1:LRA=11" \
+              -ar 24000 -ac 1 -c:a pcm_s16le "$source-lossless.wav"
+            test -s "$source-lossless.wav"
+            for preset in atual equilibrado fluido; do
+              for speed in 095 100 105; do
+                name="$preset-$speed"
+                if [ "$name" = equilibrado-100 ]; then
+                  input="$source-lossless.wav"
+                  filter=()
+                else
+                  input=".audio/compare/$name/$ARTICLE_SLUG.wav"
+                  filter=(-af "loudnorm=I=-19:TP=-1:LRA=11")
+                fi
+                ffmpeg -hide_banner -loglevel error -y \
+                  -i "$input" "${filter[@]}" \
+                  -ar 24000 -ac 1 -c:a libmp3lame -b:a 96k \
+                  ".audio/compare/$name/$ARTICLE_SLUG.mp3"
+                test -s ".audio/compare/$name/$ARTICLE_SLUG.mp3"
+              done
+            done
+            for kbps in 128 160; do
+              ffmpeg -hide_banner -loglevel error -y \
+                -i "$source-lossless.wav" \
+                -ar 24000 -ac 1 -c:a libmp3lame -b:a "${kbps}k" \
+                "$source-${kbps}k.mp3"
+              test -s "$source-${kbps}k.mp3"
+            done
+            python tools/tts/codec_review.py \
+              --slug "$ARTICLE_SLUG" --directory ".audio/compare/equilibrado-100" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            time python tools/tts/kokoro_release.py synthesize \
+              --slug "$ARTICLE_SLUG" --output-dir .audio \
+              --model .cache/kokoro/kokoro-v1.0.onnx \
+              --voices .cache/kokoro/voices-v1.0.bin
+            ffmpeg -hide_banner -loglevel error -y \
+              -i ".audio/$ARTICLE_SLUG.wav" \
+              -af "loudnorm=I=-19:TP=-1:LRA=11" \
+              -ar 24000 -ac 1 -c:a libmp3lame -b:a 128k \
+              ".audio/$ARTICLE_SLUG.mp3"
+            test -s ".audio/$ARTICLE_SLUG.mp3"
+            ffprobe -v error -show_entries format=duration \
+              -of default=noprint_wrappers=1:nokey=1 ".audio/$ARTICLE_SLUG.mp3"
+          fi
+
+      - name: Summarize Dora listening comparison
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'compare'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          slug = os.environ["ARTICLE_SLUG"]
+          data = json.loads(Path(".audio/compare/comparison.json").read_text(encoding="utf-8"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
+              report.write("### Dora — título e primeiro parágrafo de metáfora; 9 versões\n\n")
+              report.write("Voz pf_dora em todas as versões; nenhum MP3 publicado foi alterado.\n\n")
+              report.write("| Prosódia | Velocidade | Pausa parágrafo | Entre chunks | Chunks | Áudio |\n")
+              report.write("|---|---:|---:|---:|---:|---:|\n")
+              for variant in data["variants"]:
+                  config = data["presets"][variant["preset"]]
+                  report.write(f"| {variant['preset']} | {variant['speed']:.2f} | "
+                               f"{config['paragraph_pause']} s | {config['chunk_pause']} s | "
+                               f"{variant['segment_count']} | {variant['audio_seconds']} s |\n")
+              report.write("\n**Baixe o artifact `kokoro-dora-compare-*` para ouvir os nove MP3s.**\n")
+              report.write("\nComparação de compressão (mesmo WAV de equilibrado-100, sem inferência extra):\n")
+              report.write("- `equilibrado-100/<slug>.mp3`: MP3 96 kbps CBR (referência de comparação; publish usa 128 kbps)\n")
+              report.write("- `equilibrado-100/<slug>-128k.mp3`: MP3 128 kbps CBR\n")
+              report.write("- `equilibrado-100/<slug>-160k.mp3`: MP3 160 kbps CBR\n")
+              report.write("- `equilibrado-100/<slug>-lossless.wav`: WAV normalizado, referência sem perdas\n")
+          PY
+
+      - name: Upload short Dora A/B comparison (no Releases)
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'compare'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-dora-compare-${{ matrix.slug }}-${{ github.run_id }}
+          path: |
+            .audio/compare/comparison.json
+            .audio/compare/equilibrado-100/codec-comparison.json
+            .audio/compare/*/*.mp3
+            .audio/compare/equilibrado-100/*-lossless.wav
+            .audio/compare/*/*.txt
+            .audio/compare/*/*.segments.json
+            .audio/compare/*/*.metrics.json
+            .audio/compare/*/*.chapters.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload preview for listening (without modifying Releases)
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'preview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-dora-preview-${{ matrix.slug }}-${{ github.run_id }}
+          path: |
+            .audio/${{ matrix.slug }}.mp3
+            .audio/${{ matrix.slug }}.segments.json
+            .audio/${{ matrix.slug }}.chapters.json
+            .audio/${{ matrix.slug }}.metrics.json
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Validate full-length review candidate (do not publish)
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'review'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          slug = os.environ["ARTICLE_SLUG"]
+          base = Path(".audio") / slug
+          segments = json.loads(base.with_suffix(".segments.json").read_text(encoding="utf-8"))
+          chapters = json.loads(base.with_suffix(".chapters.json").read_text(encoding="utf-8"))
+          metrics = json.loads(base.with_suffix(".metrics.json").read_text(encoding="utf-8"))
+          assert segments and chapters["chapters"], "Full review must contain segments and chapters"
+          assert chapters["version"] == 2, "Expected sentence-level chapter metadata"
+          segment_keys = [(s["block_index"], s["sentence_index"]) for s in segments]
+          chapter_keys = [(c["block_index"], c["sentence_index"]) for c in chapters["chapters"]]
+          assert chapter_keys == list(dict.fromkeys(segment_keys)), "Sentence boundaries do not match inferred audio"
+          blocks = list(dict.fromkeys(block for block, _ in chapter_keys))
+          assert blocks == list(range(len(blocks))), "Editorial blocks not contiguous"
+          for block in blocks:
+              ids = [sentence for index, sentence in chapter_keys if index == block]
+              assert ids == list(range(len(ids))), f"Sentence indices not contiguous in block {block}"
+          chapter_ids = chapter_keys
+          assert all(c["start"] >= 0 for c in chapters["chapters"]), "Invalid chapter timestamps"
+          assert all(a["start"] < b["start"] for a, b in zip(chapters["chapters"], chapters["chapters"][1:])), "Invalid chapter ordering"
+          assert metrics["preset"] == "equilibrado" and metrics["speed"] == 1.0
+          assert metrics["max_tokens"] == 350 and metrics["token_budget_enabled"]
+          assert metrics["continuous"] is False
+          assert all(isinstance(s.get("token_count"), int) and 0 < s["token_count"] <= 350 for s in segments)
+          assert all(0 < s["phoneme_length"] <= 500 for s in segments)
+          probe = json.loads(subprocess.check_output([
+              "ffprobe", "-v", "error", "-show_entries",
+              "format=duration,bit_rate:stream=codec_name,sample_rate,channels", "-of", "json",
+              str(base.with_suffix(".mp3"))], text=True))
+          stream = probe["streams"][0]
+          assert stream["codec_name"] == "mp3" and stream["sample_rate"] == "24000" and stream["channels"] == 1
+          bitrate = int(probe["format"]["bit_rate"])
+          assert 120000 <= bitrate <= 136000, f"Unexpected bitrate: {bitrate}"
+          audio_seconds = float(probe["format"]["duration"])
+          assert chapters["chapters"][-1]["start"] < audio_seconds
+          print(f"PASS review: {slug}: {len(segments)} segments, {len(chapter_ids)} chapters, "
+                f"{audio_seconds:.1f} s, {bitrate} bps")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"### Revisão integral: {slug} (NÃO PUBLICADA)\\n\\n")
+              summary.write(f"- {len(segments)} segmentos; {len(chapter_ids)} capítulos\\n")
+              summary.write(f"- MP3 {audio_seconds:.1f} s, bitrate {bitrate / 1000:.1f} kbps\\n")
+              summary.write("- Dora equilibrado-100, 350 tokens, sem alteração de Release\\n")
+          PY
+          cd .audio
+          sha256sum "$ARTICLE_SLUG.mp3" "$ARTICLE_SLUG.chapters.json" "$ARTICLE_SLUG.metrics.json" > "$ARTICLE_SLUG.sha256"
+
+      - name: Upload complete candidate for human listening (no Releases)
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'review'
+        uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-dora-review-${{ matrix.slug }}-${{ github.run_id }}
+          path: |
+            .audio/${{ matrix.slug }}.mp3
+            .audio/${{ matrix.slug }}.chapters.json
+            .audio/${{ matrix.slug }}.segments.json
+            .audio/${{ matrix.slug }}.metrics.json
+            .audio/${{ matrix.slug }}.txt
+            .audio/${{ matrix.slug }}.md
+            .audio/${{ matrix.slug }}.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Backup previous Release assets before clobber
+        id: backup
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'publish' && env.REPLACE_EXISTING == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="tts-$ARTICLE_SLUG"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            mkdir -p ".audio/previous/$ARTICLE_SLUG"
+            gh release download "$tag" --dir ".audio/previous/$ARTICLE_SLUG"
+            test -s ".audio/previous/$ARTICLE_SLUG/$ARTICLE_SLUG.mp3"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Saved previous MP3 and metadata for $ARTICLE_SLUG." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Preserve old MP3 before publication
+        if: steps.backup.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tts-previous-${{ matrix.slug }}-${{ github.run_id }}
+          path: .audio/previous/${{ matrix.slug }}/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attach sentence timestamps to public Release notes
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'publish'
+        shell: bash
+        env:
+          AFTER_SHA: ${{ inputs.after_sha }}
+          EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          slug = os.environ["ARTICLE_SLUG"]
+          directory = Path(".audio")
+          chapters = json.loads((directory / f"{slug}.chapters.json").read_text(encoding="utf-8"))
+          notes = (directory / f"{slug}.md").read_text(encoding="utf-8")
+          notes += "\n<!-- SITE_CHAPTERS_V1\n"
+          # Keep Release API bodies compact; full labels remain in chapters.json.
+          public_chapters = {
+              "version": chapters["version"],
+              "chapters": [
+                  {key: chapter[key] for key in ("start", "block_index", "sentence_index")}
+                  for chapter in chapters["chapters"]
+              ],
+          }
+          notes += json.dumps(public_chapters, ensure_ascii=False, separators=(",", ":"))
+          notes += "\n-->\n"
+          if os.environ.get("AFTER_SHA") and os.environ.get("EXPECTED_BUILD_ID"):
+              sys.path.insert(0, "tools/tts")
+              from article_selection import release_artifact_marker
+              notes += "\n" + release_artifact_marker(
+                  os.environ["AFTER_SHA"], os.environ["EXPECTED_BUILD_ID"]
+              ) + "\n"
+          (directory / f"{slug}.release.md").write_text(notes, encoding="utf-8")
+          PY
+
+      - name: Publish MP3 as article-specific GitHub Release
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'publish'
+        shell: bash
+        env:
+          AFTER_SHA: ${{ inputs.after_sha }}
+          EXPECTED_BUILD_ID: ${{ inputs.expected_build_id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$AFTER_SHA"
+          test "$(gh api "repos/$GH_REPO/commits/main" --jq '.sha')" = "$AFTER_SHA"
+          python tools/tts/article_selection.py \
+            --verify-artifact --after "$AFTER_SHA" --build-id "$EXPECTED_BUILD_ID"
+          tag="tts-$ARTICLE_SLUG"
+          if [ -n "$AFTER_SHA" ] && [ -n "$EXPECTED_BUILD_ID" ]; then
+            marker="<!-- SITE_ARTIFACT_V1 $AFTER_SHA $EXPECTED_BUILD_ID -->"
+            existing_body="$(gh release view "$tag" --json body --jq '.body' 2>/dev/null || true)"
+            if grep -Fq -- "$marker" <<< "$existing_body"; then
+              echo "Artifact $EXPECTED_BUILD_ID is already published for $ARTICLE_SLUG."
+              exit 0
+            fi
+          fi
+          title="$(python -c 'import os,sys;sys.path.insert(0,"tools/tts");from article_selection import read_article;print(read_article(os.environ["ARTICLE_SLUG"])["title"])')"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [ "$REPLACE_EXISTING" = true ]; then
+              gh release upload "$tag" ".audio/$ARTICLE_SLUG.mp3" ".audio/$ARTICLE_SLUG.chapters.json" --clobber
+              gh release edit "$tag" --title "Editorial Áudio — $title" \
+                --notes-file ".audio/$ARTICLE_SLUG.release.md"
+            else
+              echo "Existing release kept unchanged."
+            fi
+          else
+            gh release create "$tag" ".audio/$ARTICLE_SLUG.mp3" ".audio/$ARTICLE_SLUG.chapters.json" \
+              --target "$GITHUB_SHA" --title "Editorial Áudio — $title" \
+              --notes-file ".audio/$ARTICLE_SLUG.release.md" --latest=false
+          fi
+
+      - name: Verify public sentence metadata and assets
+        if: steps.policy.outputs.skip != 'true' && env.MODE == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "tts-$ARTICLE_SLUG" --json body,assets \
+            | jq -e --arg slug "$ARTICLE_SLUG" '
+                (.body | contains("\"version\":2")) and
+                (([.assets[].name] | index($slug + ".mp3")) != null) and
+                (([.assets[].name] | index($slug + ".chapters.json")) != null)
+              ' >/dev/null
+          echo "Published $ARTICLE_SLUG: sentence chapters v2 + MP3 verified." >> "$GITHUB_STEP_SUMMARY"

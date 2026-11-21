@@ -1,0 +1,93 @@
+{
+  "version": 2,
+  "articleSlug": "introducao-ao-editorial",
+  "pages": [
+    {
+      "key": "home",
+      "path": "index.html",
+      "ready": "#recent-list .recent-item",
+      "elements": [
+        { "key": "header", "selector": ".site-header" },
+        { "key": "brand", "selector": ".brand" },
+        { "key": "top-search", "selector": ".top-search" },
+        { "key": "github-stars", "selector": ".github-stars" },
+        { "key": "archive-intro", "selector": ".archive-intro" },
+        { "key": "eyebrow", "selector": ".archive-intro .eyebrow" },
+        { "key": "intro-h1", "selector": ".archive-intro h1" },
+        { "key": "intro-p", "selector": ".archive-intro p" },
+        { "key": "archive-toolbar", "selector": ".archive-toolbar" },
+        { "key": "archive-heading", "selector": "#archive-heading" },
+        { "key": "article-count", "selector": "#article-count" },
+        { "key": "recent-list", "selector": "#recent-list" },
+        { "key": "recent-item", "selector": "#recent-list .recent-item" },
+        { "key": "recent-image", "selector": "#recent-list .recent-item .recent-image" },
+        { "key": "card-title", "selector": "#recent-list .recent-item .recent-copy h3" },
+        { "key": "card-excerpt", "selector": "#recent-list .recent-item .excerpt" },
+        { "key": "card-actions", "selector": "#recent-list .recent-item .card-actions" },
+        { "key": "favorite-button", "selector": "#recent-list .recent-item .favorite-button" },
+        { "key": "site-footer", "selector": ".site-footer" },
+        { "key": "footer-inner", "selector": ".footer-inner" }
+      ]
+    },
+    {
+      "key": "article",
+      "path": "article.html?slug=introducao-ao-editorial",
+      "ready": "#article-actions",
+      "elements": [
+        { "key": "header", "selector": ".site-header" },
+        { "key": "brand", "selector": ".brand" },
+        { "key": "article-header", "selector": ".article-header" },
+        { "key": "article-category", "selector": "#article-category" },
+        { "key": "article-heading", "selector": "#article-heading" },
+        { "key": "article-dek", "selector": "#article-dek" },
+        { "key": "article-meta", "selector": "#article-meta" },
+        { "key": "article-actions", "selector": "#article-actions" },
+        { "key": "inline-recording", "selector": "#inline-recording" },
+        { "key": "listen-recording", "selector": "#listen-recording" },
+        { "key": "favorite-article", "selector": "#favorite-article" },
+        { "key": "share-article", "selector": "#share-article" },
+        { "key": "article-hero", "selector": ".article-hero" },
+        { "key": "article-image", "selector": "#article-image" },
+        { "key": "article-body", "selector": "#article-body" },
+        { "key": "article-body-p", "selector": "#article-body > p" },
+        { "key": "article-callout", "selector": "#article-body .article-callout" },
+        { "key": "mermaid-figure", "selector": "#article-body .mermaid-figure" },
+        { "key": "table-scroll", "selector": "#article-body .article-table-scroll" },
+        { "key": "recommendations", "selector": "#recommendations" },
+        { "key": "recording-dock", "selector": "#recording-player" },
+        { "key": "site-footer", "selector": ".site-footer" }
+      ]
+    }
+  ],
+  "viewports": [
+    { "key": "desktop", "width": 1440, "height": 900 },
+    { "key": "tablet", "width": 820, "height": 1000 },
+    { "key": "mobile", "width": 390, "height": 844 }
+  ],
+  "properties": [
+    "color", "background-color", "background-image",
+    "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+    "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+    "border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
+    "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius",
+    "outline-color", "outline-width", "outline-style", "outline-offset",
+    "box-shadow", "text-shadow", "opacity", "caret-color", "accent-color",
+    "font-family", "font-size", "font-weight", "font-style", "line-height",
+    "letter-spacing", "word-spacing", "text-transform",
+    "text-decoration-line", "text-decoration-color", "text-decoration-style", "text-decoration-thickness",
+    "text-align", "white-space", "overflow-wrap", "word-break", "hyphens", "text-overflow", "direction",
+    "margin-top", "margin-right", "margin-bottom", "margin-left",
+    "padding-top", "padding-right", "padding-bottom", "padding-left",
+    "display", "position", "z-index", "box-sizing", "visibility", "float", "vertical-align",
+    "object-fit", "object-position", "overflow-x", "overflow-y",
+    "cursor", "pointer-events", "user-select", "touch-action", "aspect-ratio",
+    "flex-direction", "flex-wrap", "justify-content", "align-items", "align-content", "align-self", "order",
+    "flex-grow", "flex-shrink", "flex-basis",
+    "grid-auto-flow", "row-gap", "column-gap", "gap", "justify-items",
+    "transition-property", "transition-duration", "transition-timing-function", "transition-delay",
+    "animation-name", "animation-duration", "animation-timing-function", "animation-delay",
+    "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state",
+    "will-change", "transform-origin", "scroll-behavior"
+  ],
+  "screenshot": { "fullPage": true, "threshold": 6, "maxDiffPixels": 200 }
+}

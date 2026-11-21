@@ -1,0 +1,193 @@
+{
+  "baselineRef": "ade51621688b33ddd7f9789215ab7894e325d84d",
+  "inventoryVersion": 2,
+  "match": true,
+  "pages": {
+    "article": {
+      "desktop": {
+        "digests": {
+          "article-actions": "195ec7abc6623568076290474c703022d9133be77bdd200ee0d64004da915ae5",
+          "article-body": "2e359fca1c35817f15a7e7f870c2bd7f68af75c9960e0f0dfbf71764789aa14c",
+          "article-body-p": "cdbc1c07bff0d03e2b8f5fa788caa6c68fe989e922a5d6de61a083884af32b35",
+          "article-callout": "5319364b721ba34fc8891e67f3c5908281d59a9685159bc8a976fa2572742e50",
+          "article-category": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "article-dek": "0c311fbf3bfdca30621a4157d2bdc78ae5baa97c5e844a4d49bf1e9aa34721e5",
+          "article-header": "8ad013b48e7615daddbe3a763b72c0a845e3b9c2b764c712233aad1edbcf90ba",
+          "article-heading": "cef5a5e413f7adacb635f5e2360dd5f23267be4c7ec827c3ab2f4d47dfb1e583",
+          "article-hero": "cd50ec4ca9c94f470b75969bf6ed865f4ca584ba325bc41a14d8a9fbed0f3486",
+          "article-image": "fb240c33e0baed24d8b2ebea79ede13814d701a4359aae5201746587e4464776",
+          "article-meta": "bfb1471cc31945564064ac8c95fa986e6ee3676e82348089081955604d45fc66",
+          "brand": "4a3022b702e80541dacc6bcd0b7ef728ebba7d106ec2b045976413aea70f9a0c",
+          "favorite-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "header": "17344580cce192374c56e010b5105b1d5c4d1579215da9a6400c4c200a0ab14d",
+          "inline-recording": "964a60f8c7ddd46a143ec4d19919e497fe4fd9b5fbf3f0ece57bd88125abed5b",
+          "listen-recording": "1498e6cfd1b92c433bf82fe293dee5f0eddec21130a930a75834014d30890e94",
+          "mermaid-figure": "d421a861959e19be877e88c2c08439114b4dd9cb099c90b4c073406f9cb7ede9",
+          "recommendations": "c3ca81f69f8213f64439da162e00100f05af9ec72fae4080a36b7a28f1bb7e5f",
+          "recording-dock": "66dae4d92775c27da83caf123dc031c69b9f693e6b93327e3f479a9dcce6a31b",
+          "share-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "site-footer": "7ef42f76ffee3f5ed27627194cc3138adf12b687966c79b3584f97a5316febba",
+          "table-scroll": "84e51e9ca5bc45d428fcf79356fbf5d12c0aac6af8c12dc34b1f4fdaa9a2d63e"
+        },
+        "elements": 22
+      },
+      "mobile": {
+        "digests": {
+          "article-actions": "d503dd024438371884519adcadfd90a3234f2cf3120efb3b288759ca826cf73f",
+          "article-body": "8e9fac51a1d4ee1395e49ab09bab6eb401af5ce1331591d35f133c65a3578370",
+          "article-body-p": "1fff354c3e5964a6c2bca416b9ae21ede551991365de7a347e6d4d6d6d1f30b2",
+          "article-callout": "3495903d2bccd75d17f833001ae4bb41766f1f21da03541c5942d9c714c77bb3",
+          "article-category": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "article-dek": "65d91798d99d5864f010c606fb2f2c4f35f13d81b2c7c863b1b7d1335643b2c1",
+          "article-header": "aadc905e294da84e37484223e62817304b872346440cedbf282dc02ca305eba9",
+          "article-heading": "183e09c93b326742c75c4edaf87d371ef6a60910a3b6265de163289e1cf45e64",
+          "article-hero": "14f8e8d1f29890e6e34a5eb2cb470f756c2604976267b5636aab1f79baf9165d",
+          "article-image": "1d175d25f3f5269e3acce4773d7ff8d6d5d5c7cdf109305de7b0af0d843fc022",
+          "article-meta": "e391c149baf75c9613c4b9babfe9069681f0f96415ee0779a59519a0e875cb28",
+          "brand": "7636fe4f0f08138ad2879b59781725e9a649ae190f09b0455e74958fce62f997",
+          "favorite-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "header": "22eded04b62483767da68d61075b5675e77c7abc732134952d9dd52247c1e7a5",
+          "inline-recording": "5343cf0739e35bdd8cf7f166d7605eb4053d9c9985befad78684f4b0cb61fe1c",
+          "listen-recording": "bff3b82b7e3393320b55f188a501390643459f401b62663c3cb60159ab8fa1b2",
+          "mermaid-figure": "e0d5b3368dbd70fc0eea067eae50e3208cb044ab211134c6db2b5f86ac558a20",
+          "recommendations": "9248346cbbe5617fdd461b1561a6c68b46ab9daafa7bed774b2ae933129e390a",
+          "recording-dock": "aedc2fb774e1608014288fa76d010068d81742a5bc9028f7020c769a56cb70f4",
+          "share-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "site-footer": "2e6aa252b937fa4355336c84d03cd11c4edac1a6279f536a8be504c15d5055e6",
+          "table-scroll": "b846ac57e7a056f2da98e6a22824da4e1a10ef44dc32ef3c7dd3f2a987c8409f"
+        },
+        "elements": 22
+      },
+      "tablet": {
+        "digests": {
+          "article-actions": "ab082e68da5275a32520e2398117fbaa201288c060ea31b9a5a21900da736271",
+          "article-body": "b623aa338bc62e64a6a6f989841e94790cbf56ba4d17eb825d63705be8b159e5",
+          "article-body-p": "86625560013dcad0fb9807a80c0f791a6cc60807ed99eb21c4aff433af5ecf00",
+          "article-callout": "203d8ad84769a962d7dbca83b3cf5ea2e054944daaefa27e804c7d2c6b2042ef",
+          "article-category": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "article-dek": "95d0e7b72a4ede38773441999be8edb7fc80e60122459e79022834a08d7480ae",
+          "article-header": "40f0d2d7bd858facbc381365b416868620db48ee70ce5fda91ac0cfe1867ab37",
+          "article-heading": "c5089a2cd327063130ef57500104df6cd7cb489c58a52d49c6cba3fe487d9fd5",
+          "article-hero": "6994d892a16132b79649d5b51663c47551e6c0c08be71abccdf9410fcea3238d",
+          "article-image": "5606e1f0bcb4d3164bd160321e4dd61a6d756c91faa478be880174b71cf35353",
+          "article-meta": "e90ffd06eaffba69ebe424eb3e926afb86996364f5ff7e8d1cd69c1ac968498d",
+          "brand": "4a3022b702e80541dacc6bcd0b7ef728ebba7d106ec2b045976413aea70f9a0c",
+          "favorite-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "header": "c471ed8de3c392fc3ed186fde8577c2771f2206f67821ac18406c2894dbf91cf",
+          "inline-recording": "964a60f8c7ddd46a143ec4d19919e497fe4fd9b5fbf3f0ece57bd88125abed5b",
+          "listen-recording": "1498e6cfd1b92c433bf82fe293dee5f0eddec21130a930a75834014d30890e94",
+          "mermaid-figure": "81280ab84f0bf620a06d35351802bc202f127f3a729411b53ba3b66cedefc528",
+          "recommendations": "3aa7cc3935ed257ac4d7b89f9657082910e5dc34effa1792ee474164bf130d10",
+          "recording-dock": "66dae4d92775c27da83caf123dc031c69b9f693e6b93327e3f479a9dcce6a31b",
+          "share-article": "969f9e5b4755b2ef214ea3a971bd3a73d7b1193bc4cdbc5ef0f7c65035abada7",
+          "site-footer": "170aeb78df4175315c521bd25aa8ffc49a7432acddab7ccc75f31200ae9f3a20",
+          "table-scroll": "350e7811483d77b43a62563551fc241a29c748e8e653344c856e3474d6118e83"
+        },
+        "elements": 22
+      }
+    },
+    "home": {
+      "desktop": {
+        "digests": {
+          "archive-heading": "ebadb249c0cd1fa29796b12213c70c1fe65bacd5ed5d8a078f30de7cba647c72",
+          "archive-intro": "94c60364a943b2b2611be9d4684b744eeec36fc15af9ddc467c9085d59188bac",
+          "archive-toolbar": "bcce99d61fb0ddb6401d445a265751f6d16a69f74436946b9891af443d9c6b17",
+          "article-count": "49fb812f021306562c44ddb703a1c0ba8cbc1b788bd03ae19f57e7cec4cf2e08",
+          "brand": "4a3022b702e80541dacc6bcd0b7ef728ebba7d106ec2b045976413aea70f9a0c",
+          "card-actions": "41bf01197e302b34ca71393d57228ef304cece431b0242e07b1b94a59513a25b",
+          "card-excerpt": "1bbb0a0c286c51137982ff02e28ee1e5f4e5a537380094c81f3e7c6e922593bb",
+          "card-title": "948e14dfe04e2dcf1fbed631f806dcf0a92d03624d73d031ba57b983540448c4",
+          "eyebrow": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "favorite-button": "4066ec777d2d698e4d65000c8f91ee718ee9018fc8e0154053cb1b4454e80cb1",
+          "footer-inner": "45576685295ef50268e3efcf84eea8795edae07cba8ca7a29d5062a2848a6fda",
+          "github-stars": "5b94ccbf6bd892596407f7f6c35be98d21b17ffeab74ffa906146ab316dbb7b7",
+          "header": "17344580cce192374c56e010b5105b1d5c4d1579215da9a6400c4c200a0ab14d",
+          "intro-h1": "6e20ebff5cbfb13b6448c37b4873d6cb1cd10569a994f40a920b4b3d40111061",
+          "intro-p": "43a92ef0221fd96e84b2d9596eda164c85fbe4111ff632d045487f88cd9652bd",
+          "recent-image": "f039e250f5fbcb50d6e5fde0c2207e9e10c0b8d4d26b77cd01bf36b65dc23301",
+          "recent-item": "f49599431888167666456f95ce23d3b2c601b5699d53239c8b0819be05f89c88",
+          "recent-list": "6bd84f035ae77084d29b0ed5ff1595e1aa316a84f68c426682059531f6f7ca83",
+          "site-footer": "7ef42f76ffee3f5ed27627194cc3138adf12b687966c79b3584f97a5316febba",
+          "top-search": "520064559ccbac6426774fe05aea3a5148eedca7007b88550cbdb2380d5ce0d6"
+        },
+        "elements": 20
+      },
+      "mobile": {
+        "digests": {
+          "archive-heading": "bd5fb358ac47d502e53337e60f718a7e97b6a1fca97160f3a79bc130337f0c0a",
+          "archive-intro": "92453d3b620d5e0886f72b314be218e8b4bde6a2c0f671189c778aec08f658bd",
+          "archive-toolbar": "149b5acb08847084021431a6c420e8e8612d3ba87fd53e2e193391285757ec65",
+          "article-count": "49fb812f021306562c44ddb703a1c0ba8cbc1b788bd03ae19f57e7cec4cf2e08",
+          "brand": "7636fe4f0f08138ad2879b59781725e9a649ae190f09b0455e74958fce62f997",
+          "card-actions": "41bf01197e302b34ca71393d57228ef304cece431b0242e07b1b94a59513a25b",
+          "card-excerpt": "f454b8fa37ffc3f62ea5edc90ab9eb8afd8298bb662b46f57a1c6e3f3a5b6df4",
+          "card-title": "dc9e51a4109918eb67dd1dac84a92ceac663d96be833f239a9907af03e18739f",
+          "eyebrow": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "favorite-button": "4066ec777d2d698e4d65000c8f91ee718ee9018fc8e0154053cb1b4454e80cb1",
+          "footer-inner": "b33e2bbf3ef8334a0d5215d06d68bd445facd6ccfafee0c550e40f155151354e",
+          "github-stars": "0edb95c7fd9e8a11f01d3bd6b90f869aca6bcd6146a69d83c7c64f750ce24fe2",
+          "header": "22eded04b62483767da68d61075b5675e77c7abc732134952d9dd52247c1e7a5",
+          "intro-h1": "04ecd7228ffd505d7ab5b968b4208caa567f569da872bd506f22ac18d8d63c6c",
+          "intro-p": "50cf8e95b5f7d2a98c4155ccf2f4dc497c357a44243b81a4a127435dee1f8ac1",
+          "recent-image": "46303478b73d2de0690ed96e767105900c928f2e0382a607ed6981b9aa7fe866",
+          "recent-item": "7b525578fab6643706e9dc0d59e64c5a8b1cb2fc646b1509002336b06fd8dcb1",
+          "recent-list": "d0d184be3c6545ab3c0e89c379292ce90bb798cdf8d3641749a5b452e098ca3c",
+          "site-footer": "2e6aa252b937fa4355336c84d03cd11c4edac1a6279f536a8be504c15d5055e6",
+          "top-search": "b61eb043da2b77d749826cf1a214cd6fe146ad4e7d9594e77a0c88dcdc2797f7"
+        },
+        "elements": 20
+      },
+      "tablet": {
+        "digests": {
+          "archive-heading": "ebadb249c0cd1fa29796b12213c70c1fe65bacd5ed5d8a078f30de7cba647c72",
+          "archive-intro": "7d77190ff1b0f0dcc42abbb7309e73e8cfae7a755f4ec2e123126cdb406b5690",
+          "archive-toolbar": "cab8a77e8b81183709e251ea9fce7cb8c3f5faf182d5c383be7cc8f911789874",
+          "article-count": "49fb812f021306562c44ddb703a1c0ba8cbc1b788bd03ae19f57e7cec4cf2e08",
+          "brand": "4a3022b702e80541dacc6bcd0b7ef728ebba7d106ec2b045976413aea70f9a0c",
+          "card-actions": "41bf01197e302b34ca71393d57228ef304cece431b0242e07b1b94a59513a25b",
+          "card-excerpt": "4c8f6f2ffd2bcf7e62aec21117954b065b041a9b1aec40fc0619972c82429825",
+          "card-title": "993f001db910d30fef3678c3c3a1656128c6db1966dac53f38430d4b9148387d",
+          "eyebrow": "9003ded79af77a535bc0cc36529c8753a05041a31e2084db37469ef1b68e1346",
+          "favorite-button": "4066ec777d2d698e4d65000c8f91ee718ee9018fc8e0154053cb1b4454e80cb1",
+          "footer-inner": "bcc4f2a2c91815d8e9622b5791f90924c0a91f31a798f0750d39a2143af23d02",
+          "github-stars": "5b94ccbf6bd892596407f7f6c35be98d21b17ffeab74ffa906146ab316dbb7b7",
+          "header": "c471ed8de3c392fc3ed186fde8577c2771f2206f67821ac18406c2894dbf91cf",
+          "intro-h1": "a04a410058dbbb71deae7a01e1498d7de377ab92e7edf19d1c7785ce21c8ff02",
+          "intro-p": "43a92ef0221fd96e84b2d9596eda164c85fbe4111ff632d045487f88cd9652bd",
+          "recent-image": "672ae92213f90fe59acce42c09704d58c992765ca83e33ea246f4f17ea7f8bc5",
+          "recent-item": "60953d5f4cb6d33f6f054b23e596879b9ea9f34e02a7423925ef95c8431d8992",
+          "recent-list": "9d8d5964ffe9e19fea48e7cc41fa8ddc991f81c28bca7cc05e1abaaecbd73ed1",
+          "site-footer": "170aeb78df4175315c521bd25aa8ffc49a7432acddab7ccc75f31200ae9f3a20",
+          "top-search": "1aa6060a3a421c2a56170d15c11abf9f61dfa62add8c2e82992ec1b0fd102a6d"
+        },
+        "elements": 20
+      }
+    }
+  },
+  "phase": "phase-2-token-extraction",
+  "screenshots": {
+    "article-desktop": {
+      "diffPixels": 0
+    },
+    "article-mobile": {
+      "diffPixels": 0
+    },
+    "article-tablet": {
+      "diffPixels": 0
+    },
+    "home-desktop": {
+      "diffPixels": 0
+    },
+    "home-mobile": {
+      "diffPixels": 0
+    },
+    "home-tablet": {
+      "diffPixels": 0
+    }
+  },
+  "viewports": [
+    "desktop",
+    "tablet",
+    "mobile"
+  ]
+}

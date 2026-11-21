@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "limits": {
+    "maxFrameworks": 3,
+    "maxModuleBytes": 8192,
+    "maxBriefBytes": 32768
+  },
+  "authoring": "editorial/AUTHORING.md",
+  "tasks": {
+    "explain-concept": {
+      "label": "Explicar um conceito",
+      "file": "tasks/explain-concept.md"
+    },
+    "compare-approaches": {
+      "label": "Comparar abordagens",
+      "file": "tasks/compare-approaches.md"
+    },
+    "failure-analysis": {
+      "label": "Analisar uma falha",
+      "file": "tasks/failure-analysis.md"
+    },
+    "practical-guide": {
+      "label": "Construir um guia prático",
+      "file": "tasks/practical-guide.md"
+    }
+  },
+  "frameworks": {
+    "fundamentals": {
+      "label": "Fundamentos e mecanismos",
+      "file": "frameworks/fundamentals.md"
+    },
+    "tradeoffs-and-risks": {
+      "label": "Trade-offs e riscos",
+      "file": "frameworks/tradeoffs-and-risks.md"
+    },
+    "evidence-and-history": {
+      "label": "Evidências e evolução",
+      "file": "frameworks/evidence-and-history.md"
+    },
+    "practice-and-application": {
+      "label": "Prática e aplicação",
+      "file": "frameworks/practice-and-application.md"
+    }
+  }
+}

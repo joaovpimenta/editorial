@@ -1,0 +1,621 @@
+import { createHash, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { PUBLIC_ROOT_FILES, validatePublicReferences } from "./site-artifact.mjs";
+import { assertCommitSha } from "./site-config.mjs";
+import { discoverArticleSources as discoverEditorialSources } from "./generation-system.mjs";
+import { renderArticleEnvelope } from "./markdown-article.mjs";
+import { compileArticleCorpus } from "./article-corpus.mjs";
+import { extractOpeningParagraph } from "./catalog-opening.mjs";
+import { loadSiteConfig, loadThemePreset, siteConfigScript } from "./site-config.mjs";
+import { compileTheme } from "../build-tokens.mjs";
+
+const speechLexiconMarker = "/* SITE_SPEECH_LEXICON */";
+const emptyBuildId = "0".repeat(64);
+const artifactManifest = ".site-artifact.json";
+
+function isWithin(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+
+async function regularDirectory(root, relative) {
+  const absolute = path.join(root, relative);
+  const stat = await lstat(absolute);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`Expected a regular directory: ${relative}`);
+  return absolute;
+}
+
+async function walkRegularFiles(root, relative) {
+  const directory = await regularDirectory(root, relative);
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const file = `${relative}/${entry.name}`;
+    const absolute = path.join(root, file);
+    if (entry.isSymbolicLink()) throw new Error(`Symbolic links cannot enter the HTML preview: ${file}`);
+    if (entry.isDirectory()) files.push(...await walkRegularFiles(root, file));
+    else if (entry.isFile()) files.push(file);
+    else throw new Error(`Unsupported public entry: ${file}`);
+  }
+  return files;
+}
+
+async function sourceInventory(root, taxonomy) {
+  await regularDirectory(root, "articles");
+  const editorialSources = await discoverEditorialSources(root, { taxonomy });
+  if (!editorialSources.length) throw new Error("No article sources found in articles/");
+  return editorialSources;
+}
+
+function gitText(root, ...args) {
+  return execFileSync("git", args, {
+    cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+}
+
+function gitPaths(root, sourceSha, directory) {
+  const output = execFileSync("git", ["ls-tree", "-r", "--name-only", sourceSha, "--", directory], {
+    cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return output.split(/\r?\n/).filter(Boolean);
+}
+
+function assertSamePaths(label, expected, actual, sourceSha) {
+  const expectedSorted = [...expected].sort();
+  const actualSorted = [...actual].sort();
+  if (JSON.stringify(expectedSorted) === JSON.stringify(actualSorted)) return;
+  const expectedSet = new Set(expectedSorted);
+  const actualSet = new Set(actualSorted);
+  const missing = expectedSorted.filter(file => !actualSet.has(file));
+  const uncommitted = actualSorted.filter(file => !expectedSet.has(file));
+  const details = [
+    missing.length && `missing from working tree: ${missing.join(", ")}`,
+    uncommitted.length && `not present at sourceSha: ${uncommitted.join(", ")}`,
+  ].filter(Boolean).join("; ");
+  throw new Error(`${label} differs from sourceSha ${sourceSha}${details ? ` (${details})` : ""}`);
+}
+
+async function assertEditorialInputsMatchCommit(root, sourceSha, inventory, siteConfig) {
+  const legacyContentPaths = gitPaths(root, sourceSha, "content/articles");
+  if (legacyContentPaths.length) {
+    throw new Error(`Legacy content/articles sources are not allowed in the current checkout: ${legacyContentPaths.join(", ")}`);
+  }
+  const committedPaths = gitPaths(root, sourceSha, "articles");
+  const committedSources = committedPaths.filter(file => /^articles\/[a-z0-9]+(?:-[a-z0-9]+)*\/article\.md$/.test(file));
+  assertSamePaths("Article source inventory", committedSources, inventory.map(source => source.file), sourceSha);
+
+  const slugs = new Set(inventory.map(source => source.slug));
+  const committedAssets = committedPaths
+    .filter(file => [...slugs].some(slug => file.startsWith(`articles/${slug}/`) && file !== `articles/${slug}/article.md`));
+  const workingAssets = [];
+  for (const source of inventory) {
+    workingAssets.push(...(await walkRegularFiles(root, `articles/${source.slug}`)).filter(file => file !== source.file));
+  }
+  assertSamePaths("Article asset inventory", committedAssets, workingAssets, sourceSha);
+
+  const inputFiles = new Set([
+    "site.config.json",
+    `theme/presets/${siteConfig.theme}.json`,
+    "generation/taxonomy/tags.json",
+    "content/tts-lexicon.json",
+    ...inventory.map(source => source.file),
+  ]);
+  for (const file of workingAssets) inputFiles.add(file);
+
+  for (const file of [...inputFiles].sort()) {
+    let committed;
+    try {
+      committed = execFileSync("git", ["cat-file", "blob", `${sourceSha}:${file}`], {
+        cwd: root, encoding: null, maxBuffer: 50 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch (error) {
+      throw new Error(`${file} is not present at sourceSha ${sourceSha}; production HTML requires committed editorial inputs`, { cause: error });
+    }
+    const working = await readFile(path.join(root, file));
+    if (!working.equals(committed)) {
+      throw new Error(`${file} differs from sourceSha ${sourceSha}; production HTML requires the committed editorial snapshot`);
+    }
+  }
+}
+
+function publishedDateValue(value) {
+  const time = Date.parse(value ?? "");
+  return Number.isFinite(time) ? time : 0;
+}
+
+function addedAtFor(root, sourceSha, slug, previousRecords, { requireCompleteHistory = false } = {}) {
+  let history = "";
+  try {
+    history = gitText(root, "log", "--reverse", "--diff-filter=A", "--format=%cI", sourceSha,
+      "--", `articles/${slug}/article.md`);
+  } catch (error) {
+    if (requireCompleteHistory) {
+      throw new Error(`${slug}: could not resolve first-add Git history for the production catalog`, { cause: error });
+    }
+  }
+  const firstAddition = history.split(/\r?\n/).find(Boolean);
+  if (firstAddition) return firstAddition;
+  if (requireCompleteHistory) {
+    throw new Error(`${slug}: first-add Git history is unavailable for the production catalog`);
+  }
+  return previousRecords.get(slug)?.addedAt ?? "";
+}
+
+function catalogRecord(compiled, addedAt) {
+  const metadata = compiled.metadata;
+  const tags = metadata.tags ?? [];
+  const record = {
+    slug: metadata.slug,
+    path: `content/articles/${metadata.slug}.html`,
+    format: "html-v1",
+    publishedAt: metadata.publishedAt,
+    addedAt,
+    title: metadata.title,
+    category: metadata.category,
+    date: metadata.date,
+    read: metadata.read,
+    image: metadata.image,
+    alt: metadata.alt,
+    excerpt: metadata.excerpt,
+    dek: metadata.dek,
+    opening: extractOpeningParagraph(compiled.slots.body),
+    tags,
+    tagLabels: tags.map(tag => metadata.tagLabels?.[tag] ?? tag),
+  };
+  if (compiled.headingAnchor) record.headingAnchor = compiled.headingAnchor;
+  for (const field of ["updatedAt", "level", "series", "seriesOrder", "prerequisites"]) {
+    if (Object.hasOwn(metadata, field)) record[field] = metadata[field];
+  }
+  return record;
+}
+
+export function computeMarkdownBuildId(files) {
+  const hash = createHash("sha256");
+  for (const [file, content] of [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    hash.update(file, "utf8");
+    hash.update(Buffer.from([0]));
+    hash.update(content);
+    hash.update(Buffer.from([0]));
+  }
+  return hash.digest("hex");
+}
+
+function candidateServiceWorkerVersion(source, buildId) {
+  const match = source.match(/\bPRECACHE_FILES\s*=\s*(\[[\s\S]*?\])\s*;/);
+  if (!match) throw new Error("sw-version.js has no PRECACHE_FILES array");
+  const previous = JSON.parse(match[1]);
+  const precache = [...new Set([
+    ...previous.filter(file => typeof file === "string" && !file.startsWith("content/articles/") && file !== "theme/editorial.css"),
+    "assets/articles-catalog.json", "cards.js", "search.js", "theme.css", "site-config.js",
+  ])].sort();
+  return `// Generated by scripts/lib/markdown-site-artifact.mjs. Do not edit manually.\n` +
+    `const PRECACHE_VERSION = ${JSON.stringify(buildId.slice(0, 16))};\n` +
+    `const PRECACHE_FILES = ${JSON.stringify(precache, null, 2)};\n`;
+}
+
+function safeManagedPath(file) {
+  return typeof file === "string" && file.length > 0 && !file.includes("\\")
+    && !file.includes("\0") && !file.startsWith("/") && !/^[a-z]:/i.test(file)
+    && file.split("/").every(part => part && part !== "." && part !== "..");
+}
+
+function isManagedArtifactFile(file, version) {
+  if (PUBLIC_ROOT_FILES.includes(file) || file.startsWith("assets/")) return true;
+  // Version 1 outputs are recognized only so a new build can safely replace
+  // them; this does not enable JSON sources in the current checkout.
+  if (version === 1) return /^content\/articles\/[^/]+\.json$/.test(file);
+  return /^content\/articles\/[^/]+\.html$/.test(file) || /^[a-z0-9]+(?:-[a-z0-9]+)*\/index\.html$/.test(file);
+}
+
+async function listOutputFiles(root, relative = "") {
+  const files = [];
+  for (const entry of await readdir(path.join(root, relative), { withFileTypes: true })) {
+    const file = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isSymbolicLink()) throw new Error(`Managed package cannot contain symlinks: ${file}`);
+    if (entry.isDirectory()) files.push(...await listOutputFiles(root, file));
+    else if (entry.isFile()) files.push(file);
+    else throw new Error(`Managed package contains an unsupported entry: ${file}`);
+  }
+  return files;
+}
+
+async function inspectManagedOutput(output, { expectedSourceSha } = {}) {
+  let stat;
+  try { stat = await lstat(output); }
+  catch (error) { if (error.code === "ENOENT") return false; throw error; }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw new Error("Refusing to replace an unmanaged preview destination");
+  }
+  const manifestPath = path.join(output, artifactManifest);
+  let manifestStat;
+  try { manifestStat = await lstat(manifestPath); }
+  catch { throw new Error("Refusing to replace an unmanaged preview directory"); }
+  if (manifestStat.isSymbolicLink() || !manifestStat.isFile()) {
+    throw new Error("Refusing to replace an unmanaged preview manifest");
+  }
+  let manifest;
+  try { manifest = JSON.parse(await readFile(manifestPath, "utf8")); }
+  catch { throw new Error("Refusing to replace an unmanaged preview directory"); }
+  const isLegacy = manifest?.version === 1 && Object.keys(manifest).sort().join(",") === "files,version";
+  const isHtml = manifest?.version === 2 && manifest?.format === "html-v1"
+    && Object.keys(manifest).sort().join(",") === "buildId,files,format,sourceSha,version";
+  if ((!isLegacy && !isHtml) || !Array.isArray(manifest.files) || !manifest.files.length
+    || manifest.files.some(file => !safeManagedPath(file) || !isManagedArtifactFile(file, isLegacy ? 1 : 2))
+    || new Set(manifest.files).size !== manifest.files.length) {
+    throw new Error("Refusing to replace a preview directory without a valid managed artifact manifest");
+  }
+  if (expectedSourceSha && (isLegacy || manifest.sourceSha !== expectedSourceSha)) {
+    throw new Error(`HTML artifact source SHA does not match expected ${expectedSourceSha}`);
+  }
+  const actual = await listOutputFiles(output);
+  const expected = new Set([...manifest.files, artifactManifest]);
+  if (actual.length !== expected.size || actual.some(file => !expected.has(file))) {
+    throw new Error("Refusing to replace a managed package with unlisted files");
+  }
+  if (isLegacy) return true;
+
+  if (!/^[a-f0-9]{40}$/i.test(manifest.sourceSha || "")
+    || !/^[a-f0-9]{64}$/.test(manifest.buildId || "")
+    || !manifest.files.includes("assets/articles-catalog.json")
+    || !manifest.files.includes("sw-version.js")
+    || manifest.files.some(file => /^content\/articles\/[^/]+\.(?:json|md)$/.test(file))) {
+    throw new Error("Refusing to replace an invalid HTML artifact manifest");
+  }
+  const catalogPath = path.join(output, "assets", "articles-catalog.json");
+  const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+  if (!catalog || catalog.version !== 1 || catalog.transport !== "html-v1"
+    || catalog.sourceSha !== manifest.sourceSha || catalog.buildId !== manifest.buildId
+    || !Array.isArray(catalog.articles) || !catalog.articles.length
+    || Object.keys(catalog).sort().join(",") !== "articles,buildId,sourceSha,transport,version") {
+    throw new Error("Refusing to replace an HTML package with an invalid catalog");
+  }
+  const slugs = new Set();
+  for (const record of catalog.articles) {
+    if (!record || typeof record.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(record.slug)
+      || slugs.has(record.slug) || Object.hasOwn(record, "bodyHtml") || Object.hasOwn(record, "html")
+      || record.format !== "html-v1" || record.path !== `content/articles/${record.slug}.html`) {
+      throw new Error("Refusing to replace an HTML package with invalid article records");
+    }
+    slugs.add(record.slug);
+  }
+  const canonicalCatalog = Buffer.from(`${JSON.stringify(catalog, null, 2)}\n`);
+  const catalogBytes = await readFile(catalogPath);
+  if (!catalogBytes.equals(canonicalCatalog)) throw new Error("Managed HTML catalog is not canonical");
+  const baseCatalog = Buffer.from(`${JSON.stringify({
+    version: catalog.version, transport: catalog.transport, articles: catalog.articles,
+  }, null, 2)}\n`);
+  const files = new Map();
+  for (const file of manifest.files) {
+    if (file === "sw-version.js") continue;
+    let content = await readFile(path.join(output, ...file.split("/")));
+    if (file === "assets/articles-catalog.json") content = baseCatalog;
+    else if (file.startsWith("content/articles/") && file.endsWith(".html")) {
+      const html = content.toString("utf8");
+      const marker = `data-build-id="${manifest.buildId}"`;
+      if (html.split("data-build-id=").length !== 2 || html.split(marker).length !== 2) {
+        throw new Error(`Managed HTML envelope has an invalid build identity: ${file}`);
+      }
+      content = Buffer.from(html.replace(marker, `data-build-id="${"0".repeat(64)}"`));
+    }
+    files.set(file, content);
+  }
+  if (computeMarkdownBuildId(files) !== manifest.buildId) {
+    throw new Error("Refusing to replace an HTML package whose content does not match its build ID");
+  }
+  return true;
+}
+
+async function installCandidate(staging, output, previousManaged) {
+  if (!previousManaged) {
+    await rename(staging, output);
+    return;
+  }
+  const backup = path.join(path.dirname(output), `.site-html-backup-${randomUUID()}`);
+  await rename(output, backup);
+  try {
+    await rename(staging, output);
+  } catch (error) {
+    try { await rename(backup, output); }
+    catch (restoreError) {
+      throw new AggregateError([error, restoreError], "Could not install the candidate or restore the previous managed package");
+    }
+    throw error;
+  }
+  await rm(backup, { recursive: true, force: true });
+}
+
+async function loadPreviousCatalog(root) {
+  try {
+    const payload = JSON.parse(await readFile(path.join(root, "assets", "articles-catalog.json"), "utf8"));
+    const records = Array.isArray(payload) ? payload : payload?.articles;
+    if (!Array.isArray(records)) throw new Error("articles-catalog.json must contain a list of records");
+    return new Map(records.filter(record => record && typeof record.slug === "string")
+      .map(record => [record.slug, record]));
+  } catch (error) {
+    if (error.code === "ENOENT") return new Map();
+    throw error;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function stampSiteShell(html, { isArticle = false, sourceSha, siteConfig, themeColor, fontsUrl }) {
+  if (!html.includes("</head>") || html.includes("SitePublicationSha")) {
+    throw new Error(`Cannot stamp publication revision in ${isArticle ? "article.html" : "index.html"}`);
+  }
+  let stamped = html
+    .replace(/<html lang="[^"]*">/, `<html lang="${escapeHtml(siteConfig.lang)}">`)
+    .replace(/<meta name="theme-color" content="[^"]*" \/>/, `<meta name="theme-color" content="${escapeHtml(themeColor)}" />`)
+    .replace(/<meta name="apple-mobile-web-app-title" content="[^"]*" \/>/, `<meta name="apple-mobile-web-app-title" content="${escapeHtml(siteConfig.name)}" />`)
+    .replace(
+      /<a class="brand" href="index\.html" aria-label="[^"]*">[^<]*<\/a>/,
+      `<a class="brand" href="index.html" aria-label="${escapeHtml(siteConfig.name)} — página inicial">${escapeHtml(siteConfig.name)}</a>`
+    )
+    .replace(
+      /(<footer class="site-footer">\s*<div class="footer-inner">\s*<p>)[^<]*(<\/p>)/,
+      `$1${escapeHtml(siteConfig.footerText)}$2`
+    );
+
+  if (fontsUrl) {
+    stamped = stamped.replace(
+      /<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*" rel="stylesheet" \/>/,
+      `<link href="${escapeHtml(fontsUrl)}" rel="stylesheet" />`
+    );
+  } else {
+    stamped = stamped.replace(/\s*<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*" rel="stylesheet" \/>/, "");
+  }
+
+  if (siteConfig.repo) {
+    stamped = stamped.replace(
+      /<a class="github-stars" href="https:\/\/github\.com\/[^"]*"([^>]*) hidden>/,
+      `<a class="github-stars" href="https://github.com/${escapeHtml(siteConfig.repo)}"$1>`
+    );
+  } else {
+    stamped = stamped.replace(
+      /<a class="github-stars" href="https:\/\/github\.com\/[^"]*"([^>]*)>/,
+      (match, attrs) => attrs.includes("hidden")
+        ? `<a class="github-stars" href="https://github.com/"${attrs}>`
+        : `<a class="github-stars" href="https://github.com/"${attrs} hidden>`
+    );
+  }
+
+  if (isArticle) {
+    stamped = stamped
+      .replace(
+        /<meta id="article-description" name="description" content="[^"]*" \/>/,
+        `<meta id="article-description" name="description" content="Artigo do arquivo ${escapeHtml(siteConfig.name)}." />`
+      )
+      .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(siteConfig.name)}</title>`)
+      .replace(
+        /<span class="recording-subtitle" id="recording-subtitle">[^<]*<\/span>/,
+        `<span class="recording-subtitle" id="recording-subtitle">${escapeHtml(siteConfig.name)} · ${escapeHtml(siteConfig.audioLabel)}</span>`
+      );
+  } else {
+    const shortTitle = siteConfig.description.replace(/\.$/, "");
+    stamped = stamped
+      .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${escapeHtml(siteConfig.description)}" />`)
+      .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(siteConfig.name)} — ${escapeHtml(shortTitle)}</title>`)
+      .replace(
+        /<header class="archive-intro">[\s\S]*?<\/header>/,
+        `<header class="archive-intro">\n        <span class="eyebrow">${escapeHtml(siteConfig.eyebrow)}</span>\n        <h1>${escapeHtml(siteConfig.introHeading)}</h1>\n        <p>${escapeHtml(siteConfig.introBody)}</p>\n      </header>`
+      );
+  }
+
+  return stamped.replace("</head>", `<script>window.SitePublicationSha=${JSON.stringify(sourceSha)};</script>\n  </head>`);
+}
+
+async function buildFiles(root, sourceSha, { production = false } = {}) {
+  if (production && gitText(root, "rev-parse", "--is-shallow-repository") === "true") {
+    throw new Error("Production HTML requires complete Git history; configure checkout with fetch-depth: 0");
+  }
+  const siteConfig = await loadSiteConfig(root);
+  const preset = await loadThemePreset(root, siteConfig.theme);
+  const themeColor = siteConfig.themeColor || preset.themeColor;
+  const fontsUrl = typeof preset.fontsUrl === "string" ? preset.fontsUrl : "";
+  const taxonomy = JSON.parse(await readFile(path.join(root, "generation", "taxonomy", "tags.json"), "utf8"));
+  if (!taxonomy || typeof taxonomy !== "object" || !taxonomy.tags || Array.isArray(taxonomy.tags)) {
+    throw new Error("generation/taxonomy/tags.json has an invalid tag registry");
+  }
+  const inventory = await sourceInventory(root, taxonomy);
+  if (production) await assertEditorialInputsMatchCommit(root, sourceSha, inventory, siteConfig);
+  const assets = new Set(await walkRegularFiles(root, "assets"));
+  const v2Assets = new Map();
+  for (const source of inventory) {
+    for (const file of await walkRegularFiles(root, `articles/${source.slug}`)) {
+      if (file === source.file) continue;
+      const localPath = file.slice(`articles/${source.slug}/`.length);
+      if (localPath !== "cover.jpg" && !localPath.startsWith("figures/")) throw new Error(`Unsupported article asset: ${file}`);
+      const publicPath = `assets/${source.slug}/${localPath}`;
+      if (assets.has(publicPath)) throw new Error(`Duplicate public article asset: ${publicPath}`);
+      assets.add(publicPath);
+      v2Assets.set(publicPath, file);
+    }
+  }
+  const previousRecords = await loadPreviousCatalog(root);
+  const files = new Map();
+  const compiledArticles = new Map();
+
+  for (const file of PUBLIC_ROOT_FILES) {
+    if (file === "sw-version.js" || file === "theme.css" || file === "site-config.js") continue;
+    const source = path.join(root, file);
+    const stat = await lstat(source);
+    if (stat.isSymbolicLink() || !stat.isFile()) throw new Error(`Public root file must be regular: ${file}`);
+    let content = await readFile(source);
+    if (file === "manifest.webmanifest") {
+      const manifest = JSON.parse(content.toString("utf8"));
+      manifest.name = siteConfig.name;
+      manifest.short_name = siteConfig.name;
+      manifest.description = siteConfig.description;
+      manifest.lang = siteConfig.lang;
+      manifest.theme_color = themeColor;
+      manifest.background_color = preset.color.canvas;
+      content = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+    }
+    if (file === "article.html") {
+      const html = content.toString("utf8");
+      if (html.split(speechLexiconMarker).length !== 2) {
+        throw new Error("article.html must contain the speech lexicon build marker exactly once");
+      }
+      const lexicon = JSON.parse(await readFile(path.join(root, "content/tts-lexicon.json"), "utf8"));
+      if (!lexicon || typeof lexicon !== "object" || Array.isArray(lexicon)) {
+        throw new Error("content/tts-lexicon.json must contain an object");
+      }
+      const embedded = `window.SiteSpeechLexicon=${JSON.stringify(lexicon).replace(/</g, "\\u003c")};`;
+      content = Buffer.from(html.replace(speechLexiconMarker, () => embedded));
+    }
+    if (file === "index.html" || file === "article.html") {
+      content = Buffer.from(stampSiteShell(content.toString("utf8"), {
+        isArticle: file === "article.html",
+        sourceSha,
+        siteConfig,
+        themeColor,
+        fontsUrl,
+      }));
+    }
+    files.set(file, content);
+  }
+  files.set("theme.css", Buffer.from(compileTheme(preset), "utf8"));
+  files.set("site-config.js", Buffer.from(`${siteConfigScript(siteConfig)}\n`, "utf8"));
+
+  for (const file of await walkRegularFiles(root, "assets")) {
+    if (file !== "assets/articles-catalog.json") files.set(file, await readFile(path.join(root, file)));
+  }
+
+  for (const [publicPath, sourcePath] of v2Assets) files.set(publicPath, await readFile(path.join(root, sourcePath)));
+
+  const records = [];
+  for (const { file, compiled } of await compileArticleCorpus(root)) {
+    compiled.metadata.tagLabels = Object.fromEntries((compiled.metadata.tags ?? []).map(tag => [
+      tag,
+      taxonomy.tags[tag]?.label ?? tag,
+    ]));
+    const slug = compiled.metadata.slug;
+    compiledArticles.set(slug, compiled);
+    records.push(catalogRecord(compiled, addedAtFor(root, sourceSha, slug, previousRecords, {
+      requireCompleteHistory: production,
+    })));
+  }
+  records.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)
+    || publishedDateValue(b.addedAt) - publishedDateValue(a.addedAt)
+    || a.slug.localeCompare(b.slug));
+
+  const catalogBase = { version: 1, transport: "html-v1", articles: records };
+  const catalogBytes = Buffer.from(`${JSON.stringify(catalogBase, null, 2)}\n`);
+  files.set("assets/articles-catalog.json", catalogBytes);
+  for (const [slug, compiled] of compiledArticles) {
+    files.set(`content/articles/${slug}.html`, Buffer.from(renderArticleEnvelope(compiled, { buildId: emptyBuildId })));
+  }
+  const articleShell = files.get("article.html").toString("utf8");
+  for (const record of records) {
+    let shell = articleShell.replace('<body class="article-page">', `<body class="article-page" data-article-slug="${record.slug}">`)
+      .replace(`<title>${escapeHtml(siteConfig.name)}</title>`, `<title>${escapeHtml(record.title)} — ${escapeHtml(siteConfig.name)}</title>\n    <link rel="canonical" href="../${record.slug}/" />`)
+      .replace(`content="Artigo do arquivo ${escapeHtml(siteConfig.name)}."`, `content="${escapeHtml(record.excerpt)}"`)
+      .replace(/(\b(?:href|src|action)="|\bdata-fallback-src=")((?!#|\/|[a-z][a-z0-9+.-]*:)[^"]+)/gi, '$1../$2');
+    if (record.headingAnchor && record.headingAnchor !== "article-heading") {
+      shell = shell.replace('<h1 id="article-heading">', `<span id="${escapeHtml(record.headingAnchor)}"></span><h1 id="article-heading">`);
+    }
+    // The canonical URL is already relative to this route, not to the site root.
+    shell = shell.replace(`href="../../${record.slug}/"`, `href="../${record.slug}/"`);
+    shell = shell.replace('</head>', '<script>window.SiteBase="../";</script>\n  </head>');
+    files.set(`${record.slug}/index.html`, Buffer.from(shell));
+  }
+  const buildId = computeMarkdownBuildId(files);
+
+  for (const [slug, compiled] of compiledArticles) {
+    files.set(`content/articles/${slug}.html`, Buffer.from(renderArticleEnvelope(compiled, { buildId })));
+  }
+  const catalog = { ...catalogBase, sourceSha, buildId };
+  files.set("assets/articles-catalog.json", Buffer.from(`${JSON.stringify(catalog, null, 2)}\n`));
+  const serviceWorkerSource = await readFile(path.join(root, "sw-version.js"), "utf8");
+  files.set("sw-version.js", Buffer.from(candidateServiceWorkerVersion(serviceWorkerSource, buildId)));
+  return { files, inventory, catalog, buildId, sourceSha };
+}
+
+async function buildMarkdownPackage({ root, destination, sourceSha, production = false } = {}) {
+  root = await realpath(root);
+  if (typeof destination !== "string" || !destination) throw new Error("A dedicated preview destination is required");
+  const absoluteOutput = path.resolve(destination);
+  let parent;
+  if (production) {
+    if (absoluteOutput !== path.join(root, "dist")) throw new Error("Production HTML artifact destination must be <root>/dist");
+    parent = root;
+  } else {
+    const tempRoot = await realpath(os.tmpdir());
+    if (!isWithin(tempRoot, absoluteOutput)) throw new Error("Preview destination must be beneath the system temporary directory");
+    parent = await realpath(path.dirname(absoluteOutput));
+    if (!isWithin(tempRoot, parent)) throw new Error("Preview parent must remain beneath the system temporary directory");
+  }
+  const output = path.join(parent, path.basename(absoluteOutput));
+  await inspectManagedOutput(output);
+  sourceSha = sourceSha ?? gitText(root, "rev-parse", "HEAD");
+  assertCommitSha(sourceSha, "sourceSha");
+
+  const staging = await mkdtemp(path.join(parent, production ? ".site-html-build-" : ".site-html-preview-"));
+  try {
+    const built = await buildFiles(root, sourceSha, { production });
+    const publicFiles = [...built.files.keys()].sort();
+    if (publicFiles.some(file => /^content\/articles\/[^/]+\.(?:json|md)$/.test(file))) {
+      throw new Error("HTML preview cannot contain individual article source files");
+    }
+    const slugs = built.inventory.map(source => source.slug).sort();
+    const catalogSlugs = built.catalog.articles.map(record => record.slug).sort();
+    if (JSON.stringify(slugs) !== JSON.stringify(catalogSlugs)) throw new Error("HTML preview catalog and source inventory diverge");
+    for (const record of built.catalog.articles) {
+      if (record.format !== "html-v1" || record.path !== `content/articles/${record.slug}.html`) {
+        throw new Error(`Invalid HTML transport record: ${record.slug}`);
+      }
+    }
+    for (const [file, content] of built.files) {
+      const destinationPath = path.join(staging, ...file.split("/"));
+      await mkdir(path.dirname(destinationPath), { recursive: true });
+      await writeFile(destinationPath, content, { flag: "wx" });
+    }
+    const manifest = {
+      version: 2,
+      format: "html-v1",
+      sourceSha: built.sourceSha,
+      buildId: built.buildId,
+      files: publicFiles,
+    };
+    await writeFile(path.join(staging, artifactManifest), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
+    await validatePublicReferences(staging, publicFiles);
+    if (JSON.stringify(JSON.parse(await readFile(path.join(staging, "assets/articles-catalog.json"), "utf8")))
+        !== JSON.stringify(built.catalog)) throw new Error("Staged HTML catalog changed during packaging");
+    const previousManaged = await inspectManagedOutput(output);
+    await installCandidate(staging, output, previousManaged);
+    return { destination: output, sourceSha: built.sourceSha, buildId: built.buildId, files: publicFiles };
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+export function buildMarkdownPreview(options = {}) {
+  return buildMarkdownPackage(options);
+}
+
+export async function verifyMarkdownSiteArtifact(directory, sourceSha) {
+  assertCommitSha(sourceSha, "sourceSha");
+  const output = path.resolve(directory);
+  const managed = await inspectManagedOutput(output, { expectedSourceSha: sourceSha });
+  if (!managed) throw new Error(`No managed HTML site artifact exists at ${output}`);
+  const manifest = JSON.parse(await readFile(path.join(output, artifactManifest), "utf8"));
+  if (manifest.version !== 2 || manifest.format !== "html-v1" || manifest.sourceSha !== sourceSha) {
+    throw new Error("Expected a content-verified html-v1 artifact for the requested source SHA");
+  }
+  return { sourceSha: manifest.sourceSha, buildId: manifest.buildId, fileCount: manifest.files.length };
+}
+
+export function buildMarkdownSiteArtifact({ root, destination = path.join(root, "dist"), sourceSha } = {}) {
+  return buildMarkdownPackage({ root, destination, sourceSha, production: true });
+}

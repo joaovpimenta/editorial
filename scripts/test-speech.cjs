@@ -1,0 +1,235 @@
+const assert = require("node:assert/strict");
+const { test } = require("node:test");
+const speech = require("../speech.js");
+
+test("unknown initialisms are spelled in Portuguese, independently of surrounding language", () => {
+  const parts = speech.pronounce("Use API, SQL e APIs; api.example/API_v2.", "en-US", {});
+  assert.equal(parts.map(part => part.text).join(""), "Use a pê i, ésse quê éle e a pê is; api.example/API_v2.");
+  assert.equal(parts.find(part => part.text === "a pê i").lang, "pt-BR");
+});
+
+test("lexicon wins over spelling and can change the next reading without editing the article", () => {
+  assert.equal(speech.pronounce("SQL", "pt-BR", {})[0].text, "ésse quê éle");
+  const lexicon = { SQL: { speak: "sequel", lang: "en-US" } };
+  assert.deepEqual(speech.pronounce("SQL", "pt-BR", lexicon), [
+    { text: "sequel", lang: "en-US", start: 0, end: 3, replacement: true }
+  ]);
+});
+
+test("expanded speech retains the original visible range", () => {
+  const api = speech.pronounce("Uma API segura.", "pt-BR", {}).find(part => part.replacement);
+  assert.equal(api.text, "a pê i");
+  assert.deepEqual([api.start, api.end], [4, 7]);
+});
+
+test("lexicon rejects malformed pronunciation entries", () => {
+  assert.throws(() => speech.validateLexicon({ API: { speak: "", lang: "pt-BR" } }), /inválida/);
+  assert.throws(() => speech.validateLexicon([]), /inválido/);
+});
+
+test("voice preparation reads the list without speaking and accepts voices that arrive later", () => {
+  class Synthesis extends EventTarget {
+    calls = 0;
+    voices = [];
+    utterances = [];
+    getVoices() { this.calls += 1; return this.voices; }
+    speak(utterance) { this.utterances.push(utterance); }
+    cancel() {}
+    resume() {}
+    pause() {}
+  }
+  const synthesis = new Synthesis();
+  const prepared = speech.prepareVoices(synthesis);
+  assert.equal(prepared.snapshot().state, "pending");
+  assert.equal(synthesis.calls, 1, "getVoices is called during preparation");
+  assert.equal(synthesis.utterances.length, 0, "voice preparation never emits speech");
+  synthesis.voices = [{ lang: "pt-BR", name: "Voz tardia" }];
+  synthesis.dispatchEvent(new Event("voiceschanged"));
+  assert.equal(prepared.snapshot().state, "ready");
+  assert.equal(prepared.snapshot().voices[0].name, "Voz tardia");
+  assert.equal(synthesis.calls, 2);
+  synthesis.voices = [];
+  synthesis.dispatchEvent(new Event("voiceschanged"));
+  assert.equal(prepared.snapshot().state, "unavailable", "an empty list after readiness cannot leave a ready state with no voices");
+  assert.equal(prepared.snapshot().voices.length, 0);
+  synthesis.voices = [{ lang: "pt-BR", name: "Voz recuperada" }];
+  synthesis.dispatchEvent(new Event("voiceschanged"));
+  assert.equal(prepared.snapshot().state, "ready", "a later service response can restore voice availability");
+  class Utterance { constructor(text) { this.text = text; } }
+  speech.createPlayer({ blocks: [{ segments: [{ text: "Olá.", lang: "pt-BR", words: [] }] }], synthesis, Utterance }).start();
+  assert.equal(synthesis.utterances[0].voice.name, "Voz recuperada", "the first user-triggered utterance uses the latest available voice");
+});
+
+test("mixed-case initialisms and plurals use the same fallback", () => {
+  assert.equal(speech.pronounce("mTLS e gRPC", "pt-BR", {}).map(part => part.text).join(""), "ême tê éle ésse e gê érre pê cê");
+});
+
+test("inline code is only narrated when an explicit speech alias exists", () => {
+  function node(tag, alias) {
+    return {
+      matches(selector) {
+        if (selector === "code") return tag === "code";
+        return tag === "pre" && selector.includes("pre");
+      },
+      getAttribute(key) { return key === "data-tts-say" ? alias : null; }
+    };
+  }
+  assert.equal(speech.isNarrationIgnored(node("code", null)), true);
+  assert.equal(speech.isNarrationIgnored(node("code", "")), true);
+  assert.equal(speech.isNarrationIgnored(node("code", "try catch")), false);
+  assert.equal(speech.isNarrationIgnored(node("pre", null)), true);
+});
+
+function playerFixture() {
+  const utterances = [];
+  const synthesis = { getVoices: () => [], speak: utterance => utterances.push(utterance), cancel() {}, pause() {}, resume() {} };
+  const blocks = [
+    { segments: [{ text: "Um", lang: "pt-BR", words: [] }, { text: "two", lang: "en-US", words: [] }] },
+    { segments: [{ text: "Três", lang: "pt-BR", words: [] }] }
+  ];
+  const player = speech.createPlayer({ blocks, synthesis, Utterance: class { constructor(text) { this.text = text; } } });
+  return { player, utterances };
+}
+
+test("next skips a whole paragraph and ignores late events from canceled speech", () => {
+  const { player, utterances } = playerFixture();
+  player.start();
+  const canceled = utterances[0];
+  player.next();
+  assert.equal(utterances.at(-1).text, "Três");
+  canceled.onend();
+  canceled.onerror({ error: "synthesis-failed" });
+  assert.equal(player.snapshot().blockIndex, 1);
+  assert.equal(player.snapshot().state, "speaking");
+  assert.equal(utterances.length, 2);
+});
+
+test("seeking while paused stays paused and resumes at the selected paragraph", () => {
+  const { player, utterances } = playerFixture();
+  player.start();
+  player.toggle();
+  player.next();
+  assert.equal(player.snapshot().state, "paused");
+  assert.equal(utterances.length, 1);
+  player.toggle();
+  assert.equal(utterances.at(-1).text, "Três");
+  player.stop();
+  utterances.at(-1).onend();
+  assert.equal(player.snapshot().state, "idle");
+});
+
+test("device TTS smoke: browser synthesis speaks PT-BR and English without MP3", () => {
+  const utterances = [];
+  const voices = [{ lang: "pt-BR", name: "Português" }, { lang: "en-US", name: "English" }];
+  const synthesis = {
+    getVoices: () => voices,
+    speak: utterance => utterances.push(utterance),
+    cancel() {}, pause() {}, resume() {}
+  };
+  const blocks = [{ segments: [
+    { text: "O padrão", lang: "pt-BR", words: [] },
+    { text: "Bulkhead", lang: "en-US", words: [] }
+  ] }];
+  const player = speech.createPlayer({
+    blocks, synthesis,
+    Utterance: class { constructor(text) { this.text = text; } }
+  });
+  player.start();
+  assert.equal(utterances.length, 1);
+  assert.equal(utterances[0].text, "O padrão");
+  assert.equal(utterances[0].lang, "pt-BR");
+  assert.equal(utterances[0].voice, voices[0]);
+  utterances[0].onend();
+  assert.equal(utterances.length, 2);
+  assert.equal(utterances[1].text, "Bulkhead");
+  assert.equal(utterances[1].lang, "en-US");
+  assert.equal(utterances[1].voice, voices[1]);
+  utterances[1].onend();
+  assert.equal(player.snapshot().state, "idle");
+});
+
+
+test("native narration rate is adjustable through shared player without losing paragraph position", () => {
+  const { player, utterances } = playerFixture();
+  player.start(1);
+  assert.equal(utterances.at(-1).rate, 1);
+  player.setRate(1.25);
+  assert.equal(player.getRate(), 1.25);
+  assert.equal(player.snapshot().blockIndex, 1);
+  assert.equal(utterances.at(-1).rate, 1.25);
+  assert.equal(utterances.at(-1).text, "Três");
+  player.toggle();
+  player.setRate(1.5);
+  assert.equal(player.snapshot().state, "paused");
+  assert.equal(player.getRate(), 1.5);
+  player.toggle();
+  assert.equal(player.snapshot().state, "speaking");
+});
+
+test("sentence detection keeps commas and abbreviations together", () => {
+  assert.equal(speech.isSentenceBoundary("API,"), false);
+  assert.equal(speech.isSentenceBoundary("Dr."), false);
+  assert.equal(speech.isSentenceBoundary("resiliência."), true);
+  assert.equal(speech.isSentenceBoundary("continua!"), true);
+});
+
+
+test("sentence highlight covers spaces between word spans via one DOM Range", () => {
+  const words = [
+    { tagName: "SPAN", textContent: "Se" },
+    { tagName: "SPAN", textContent: "uma" },
+    { tagName: "SPAN", textContent: "dessas" },
+    { tagName: "SPAN", textContent: "ações" }
+  ];
+  // The real DOM has whitespace text nodes between these spans. A range
+  // from the first span through the last includes those text nodes as well.
+  const registry = new Map();
+  const ranges = [];
+  class FakeHighlight {
+    constructor(range) { this.ranges = [range]; }
+  }
+  const document = {
+    defaultView: { CSS: { highlights: registry }, Highlight: FakeHighlight },
+    createRange() {
+      const range = {
+        setStartBefore(node) { this.startBefore = node; },
+        setEndAfter(node) { this.endAfter = node; }
+      };
+      ranges.push(range);
+      return range;
+    }
+  };
+  const highlighter = speech.createSentenceHighlighter(document, "recording-sentence-active");
+  assert.equal(highlighter.set(words), true);
+  const value = registry.get("site-current-sentence");
+  assert.equal(value.ranges[0].startBefore, words[0]);
+  assert.equal(value.ranges[0].endAfter, words[3]);
+  assert.equal(ranges.length, 1, "single inclusive range, not four isolated highlights");
+  assert.equal(highlighter.set([words[3]]), true);
+  assert.equal(registry.size, 1, "moving to the next sentence replaces the range");
+  assert.equal(registry.get("site-current-sentence").ranges[0].startBefore, words[3]);
+  highlighter.clear();
+  assert.equal(registry.size, 0, "stopping playback clears the background");
+});
+
+test("sentence highlight retains legacy fallback without CSS Highlight API", () => {
+  function word() {
+    const classes = new Set();
+    return {
+      classes,
+      classList: {
+        add(value) { classes.add(value); },
+        remove(value) { classes.delete(value); }
+      }
+    };
+  }
+  const first = word();
+  const second = word();
+  const highlighter = speech.createSentenceHighlighter({ defaultView: {} }, "recording-sentence-active");
+  assert.equal(highlighter.set([first, second]), false);
+  assert(first.classes.has("recording-sentence-active"));
+  assert(second.classes.has("recording-sentence-active"));
+  highlighter.clear();
+  assert(!first.classes.has("recording-sentence-active"));
+  assert(!second.classes.has("recording-sentence-active"));
+});

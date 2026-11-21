@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="editorial-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2c8973" />
+      <stop offset="100%" stop-color="#1d6151" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#editorial-bg)" />
+  <rect x="44" y="44" width="424" height="424" rx="86" fill="none" stroke="#faf8f3" stroke-opacity="0.22" stroke-width="8" />
+  <path
+    fill="#faf8f3"
+    d="M148 128 H364 V196 H334 C330 174 316 164 290 164 H228 V238 H292 C312 238 320 230 324 214 H348 V298 H324 C320 282 312 274 292 274 H228 V348 H294 C322 348 336 338 342 314 H372 V384 H148 V360 C166 358 174 350 174 332 V180 C174 162 166 154 148 152 Z"
+  />
+</svg>

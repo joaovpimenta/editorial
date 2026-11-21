@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta id="article-description" name="description" content="Artigo do arquivo Editorial." />
+    <title>Editorial</title>
+    <meta name="theme-color" content="#277d69" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Editorial" />
+    <link rel="manifest" href="manifest.webmanifest?v=20261120" />
+    <link rel="icon" href="favicon.svg?v=20261120" type="image/svg+xml" sizes="any" />
+    <link rel="icon" href="assets/favicon-32x32.png?v=20261120" type="image/png" sizes="32x32" />
+    <link rel="icon" href="assets/favicon-16x16.png?v=20261120" type="image/png" sizes="16x16" />
+    <link rel="shortcut icon" href="favicon.ico?v=20261120" />
+    <link rel="apple-touch-icon" href="assets/app-icon-180.png?v=20261120" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cabin:wght@400;500;600;700&family=Lora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="theme.css?v=20261120" />
+    <link rel="stylesheet" href="styles.css?v=20261029-live-suggestions" />
+    <script src="site-config.js"></script>
+  </head>
+  <body class="article-page">
+    <a class="skip-link" href="#article-root">Ir para o artigo</a>
+    <header class="site-header">
+      <div class="header-inner home-header-inner">
+        <a class="brand" href="index.html" aria-label="Editorial — página inicial">Editorial</a>
+        <form class="top-search" action="index.html" method="get" role="search">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
+          <label class="visually-hidden" for="article-search-input">Buscar artigo</label>
+          <input id="article-search-input" name="q" type="search" placeholder="Buscar artigo" autocomplete="off" enterkeyhint="search" />
+          <div id="search-suggestions" class="search-suggestions" role="region" aria-label="Sugestões de artigos" hidden></div>
+        </form>
+        <div class="header-actions">
+          <a class="github-stars" href="https://github.com/" target="_blank" rel="noopener noreferrer" aria-label="Ver repositório no GitHub" title="Estrelas do repositório no GitHub" hidden>
+            <svg aria-hidden="true" class="github-mark" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+            <span class="github-star-label"><span aria-hidden="true">★</span> <span id="github-stars">—</span></span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="article-shell" id="article-root">
+      <header class="article-header">
+        <span class="eyebrow" id="article-category">Carregando artigo</span>
+        <h1 id="article-heading">Carregando artigo…</h1>
+        <p class="dek" id="article-dek"></p>
+        <div class="article-meta" id="article-meta"></div>
+        <div class="article-actions" id="article-actions" hidden>
+          <div class="inline-recording-anchor" id="inline-recording-anchor">
+            <div class="inline-recording" id="inline-recording" role="group" aria-label="Player de áudio do artigo">
+              <button class="inline-recording-play recording-trigger" id="listen-recording" type="button" aria-label="Reproduzir narração" aria-pressed="false" data-playing="false">
+                <svg class="recording-icon-play" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5a1 1 0 0 1 1.5-.86l12 7.5a1 1 0 0 1 0 1.72l-12 7.5A1 1 0 0 1 7 19.5z"/></svg>
+                <svg class="recording-icon-pause" aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg>
+                <span class="recording-button-label visually-hidden">Ouvir artigo</span>
+              </button>
+              <button type="button" id="inline-recording-previous" class="inline-recording-skip" aria-label="Trecho anterior" title="Trecho anterior" hidden disabled>
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m19 5-9 7 9 7V5Z"/><path d="M6 5v14"/></svg>
+              </button>
+              <button type="button" id="inline-recording-next" class="inline-recording-skip" aria-label="Próximo trecho" title="Próximo trecho" hidden disabled>
+                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 5 9 7-9 7V5Z"/><path d="M18 5v14"/></svg>
+              </button>
+              <div class="inline-recording-timeline" id="inline-recording-timeline" hidden>
+                <span class="inline-recording-elapsed" id="inline-recording-elapsed">0:00</span>
+                <input class="inline-recording-seek" type="range" id="inline-recording-seek" min="0" max="1000" value="0" step="1" aria-label="Posição da narração" disabled />
+                <span class="inline-recording-duration" id="inline-recording-duration">–:––</span>
+              </div>
+              <button type="button" class="inline-recording-rate" id="inline-recording-rate" title="Alterar velocidade" aria-label="Velocidade da narração: 1 vez">1×</button>
+              <span id="inline-recording-source" class="recording-source-label" hidden></span>
+            </div>
+          </div>
+          <div class="article-social-actions">
+            <button class="article-icon-button favorite-button" id="favorite-article" type="button" aria-label="Adicionar artigo aos favoritos" aria-pressed="false" title="Favoritar">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z"/></svg>
+            </button>
+            <button class="article-icon-button" id="share-article" type="button" aria-label="Compartilhar artigo" title="Compartilhar">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V3m0 0L7 8m5-5 5 5M5 13v5a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-5"/></svg>
+            </button>
+          </div>
+          <span class="listen-status" id="listen-status" role="status" aria-live="polite"></span>
+          <span class="listen-status" id="recording-status" role="status" aria-live="polite"></span>
+          <span class="share-status" id="share-status" role="status" aria-live="polite"></span>
+        </div>
+
+      </header>
+      <div class="article-hero" hidden><img id="article-image" alt="" /></div>
+      <article class="article-body" id="article-body"><p>Carregando o conteúdo…</p></article>
+      <noscript><p>Ative o JavaScript para carregar o conteúdo deste artigo.</p></noscript>
+      <section class="recommendations-section" id="recommendations" aria-labelledby="recommendations-heading" hidden>
+        <h2 id="recommendations-heading">Continue explorando</h2>
+        <div class="recent-list" id="recommendations-list"></div>
+      </section>
+    </main>
+
+    <section class="recording-dock" id="recording-player" aria-label="Player do áudio gravado do artigo" hidden>
+      <audio id="article-recording" preload="none"></audio>
+      <div class="recording-cover-ring" id="recording-ring">
+        <img id="recording-cover" alt="" />
+      </div>
+      <div class="recording-info">
+        <strong id="recording-title" class="recording-title"></strong>
+        <span class="recording-subtitle" id="recording-subtitle">Editorial · Narração</span>
+        <div class="recording-progress">
+          <span id="recording-elapsed" class="recording-time">0:00</span>
+          <input id="recording-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Posição da narração" disabled />
+          <span id="recording-duration" class="recording-time">–:––</span>
+        </div>
+      </div>
+      <div class="recording-actions">
+        <button id="recording-rate" class="recording-rate" type="button" aria-label="Velocidade da narração: 1 vez">1×</button>
+        <span id="recording-source" class="recording-source-label" hidden></span>
+        <button id="recording-previous" class="recording-skip" type="button" aria-label="Frase anterior" title="Frase anterior" disabled>
+          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path d="M19 5 10 12l9 7V5Z"/><path d="M6 5v14"/></svg>
+        </button>
+        <button id="recording-play" class="recording-play" type="button" data-playing="false" aria-label="Reproduzir narração" aria-pressed="false">
+          <svg class="recording-icon-play" aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5a1 1 0 0 1 1.5-.86l12 7.5a1 1 0 0 1 0 1.72l-12 7.5A1 1 0 0 1 7 19.5z"/></svg>
+          <svg class="recording-icon-pause" aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/></svg>
+        </button>
+        <button id="recording-skip" class="recording-skip" type="button" aria-label="Próxima frase" title="Próxima frase" disabled>
+          <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"><path d="m5 5 9 7-9 7V5Z"/><path d="M18 5v14"/></svg>
+        </button>
+        <details class="recording-options">
+          <summary aria-label="Outras opções de áudio" title="Outras opções de áudio">···</summary>
+          <div class="recording-options-menu">
+            <p id="recording-source-menu" class="recording-source-current">Fonte atual: não iniciada</p>
+            <button id="listen-article" type="button" aria-pressed="false">Usar voz do dispositivo</button>
+            <label class="recording-follow"><input id="recording-follow" type="checkbox" checked /> Acompanhar frase</label>
+          </div>
+        </details>
+        <button id="recording-close" class="recording-close" type="button" aria-label="Fechar player" title="Fechar player">
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2"><path d="M5 5 19 19M19 5 5 19"/></svg>
+        </button>
+      </div>
+    </section>
+    <div class="article-quick-actions" id="article-quick-actions" role="dialog" aria-modal="false" aria-labelledby="quick-preview-title" hidden></div>
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p>Editorial · Arquivo de artigos</p>
+      </div>
+    </footer>
+    <script src="mermaid-theme.js?v=20260920-mermaid"></script>
+    <script>/* SITE_SPEECH_LEXICON */</script>
+    <script src="speech.js?v=20261023-sentence-range"></script>
+    <script src="audio.js?v=20261029-source-indicator"></script>
+    <script src="header.js?v=20261023-shared"></script>
+    <script src="cards.js?v=20261029-pages-revision"></script>
+    <script src="search.js?v=20261029-live-suggestions"></script>
+    <script src="article.js?v=20261029-live-suggestions"></script>
+    <script src="pwa.js"></script>
+  </body>
+</html>

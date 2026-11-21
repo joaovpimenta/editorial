@@ -1,0 +1,15 @@
+## Arquivos locais ignorados (legado e dados de desenvolvimento)
+.venv/
+.local/
+__pycache__/
+*.pyc
+*.pyo
+*.wav
+*.mp3
+
+## Generated local/public artifacts
+dist/
+node_modules/
+assets/articles-catalog.json
+theme.css
+site-config.js

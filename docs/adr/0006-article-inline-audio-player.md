@@ -1,0 +1,50 @@
+# ADR 0006 — Barra de áudio contextual no artigo
+
+- Data: 2026-10-23
+- Status: proposta em Pull Request
+
+## Contexto
+
+A página de artigo exibiu até agora um botão grande “Ouvir artigo”, abrindo um player fixo junto à borda inferior. Em leitura no começo do artigo, a área do cabeçalho fica subutilizada e o dock aparece mesmo quando ainda há espaço para controles próximos ao título.
+
+## Decisão
+
+1. Substituir o botão grande por uma **barra de áudio embutida** no cabeçalho do artigo, com play/pause, tempo decorrido, barra de progresso, duração e velocidade (quando houver largura). A barra já aparece antes da reprodução, sem forçar autoplay.
+2. Preservar **um único elemento `<audio>`, um único estado de reprodução e os capítulos existentes** em `audio.js`. Barra embutida e dock flutuante são duas interfaces de controle da mesma sessão, e não players independentes.
+3. Observar a visibilidade do contêiner da barra por `IntersectionObserver`. Enquanto o usuário vê a barra, manter o dock oculto. Depois de iniciar a sessão, ao sair da região da barra, mostrar o **dock inferior atual**. Ao voltar, ocultá-lo. O dock permanece acessível quando a reprodução está pausada e sua sessão ainda não foi encerrada.
+4. A mesma regra deve funcionar para MP3 e para voz do dispositivo. Preservar atalhos, velocidade, capítulos, Media Session, destaque e integridade do áudio; não gerar nem substituir arquivos MP3.
+5. Colocar botões minimalistas de favorito e compartilhar ao lado da barra. Compartilhar continua usando a Web Share API com fallback de cópia de link; o favorito usa a **mesma chave `site:favorites:v1`** da página inicial. Não criar backend, contador público nem filtro adicional.
+6. Preservar uso acessível por teclado, estados `aria-pressed`, foco, nomes dos controles e preferência por movimento reduzido. O layout compacto deve adaptar a barra e seus botões a celulares.
+
+## Verificações
+
+- Iniciar áudio na barra sem exibir o dock enquanto ela está visível.
+- Ao descer, mostrar o dock na parte inferior **sem reiniciar áudio, trocar a fonte, perder tempo ou alterar velocidade**.
+- Ao voltar à barra, ocultar o dock; ao fechar a sessão, manter ambos inativos.
+- Permitir play/pause, busca e troca de velocidade no ponto em que o usuário está.
+- Confirmar favorito persistido no mesmo navegador e compartilhamento nativo/cópia do link.
+- Validar modo de voz do dispositivo, capítulos, scroll, modo mobile e ausência de autoplay.
+- A referência visual final da barra pode orientar ajustes de espaçamento e ícones sem mudar este contrato funcional.
+
+## Revisão de interface — 2026-10-23
+
+- A top bar de artigo e home têm a mesma hierarquia (Editorial, pesquisa e GitHub com estrelas). A pesquisa dentro do artigo encaminha para `index.html?q=...`, onde é resolvida pelo catálogo leve. O carregamento das estrelas fica em `header.js`, compartilhado e com cache local.
+- A barra de áudio embutida deve ser branca, sem caixa verde/borda de contêiner. O botão play/pause circular usa o verde do site; velocidade permanece visível **inclusive em telas estreitas**. Os controles de trecho anterior/próximo aparecem quando houver capítulos; dock flutuante e barra compartilham a mesma sessão.
+
+## Refinamento de alinhamento — 2026-10-23
+
+- Renderizar o player embutido, favorito e compartilhamento **na mesma linha**. A área do player cresce até 460 px no desktop e encolhe quando o viewport estreita, sem obrigar os botões sociais a quebrar para uma segunda linha.
+- Usar 40 px como altura comum do player e dos botões de favorito/compartilhar. Play/pause, velocidade e ações continuam acessíveis. Em larguras muito estreitas, esconder somente os atalhos de salto entre capítulos dentro da barra, que permanecem no dock flutuante.
+- No menu de toque prolongado da home, usar a classe `is-targeted` já associada à posição do dedo para destacar a ação selecionada com preenchimento, sombra e ampliação discreta, sem deslocar a área clicável. A transição deve respeitar `prefers-reduced-motion`.
+
+## Correção responsiva — 2026-10-23
+
+- A prioridade em qualquer largura é manter, **na mesma linha**, play/pause, anterior/próximo (quando houver capítulos), velocidade, favorito e compartilhar. O player e os controles sociais ocupam colunas distintas; a velocidade nunca deve invadir o botão de favorito.
+- A barra de progresso, o tempo decorrido e a duração são **opcionais** no player embutido: quando o próprio player fica com largura de até 272 px, ocultá-los juntos usando container query. Em navegadores antigos, aplicar fallback por largura do viewport. Não esconder navegação de capítulos apenas para dar espaço ao progresso.
+- Reservar largura para rótulos de velocidade como `1.25×` e alinhar esse botão à borda direita do player quando o progresso estiver oculto. Validar visualmente com controles de capítulos presentes em 320, 360, 390, 400 e 430 px, e verificar ausência de interseção das áreas clicáveis.
+
+## Ajuste definitivo de largura — 2026-10-23
+
+- O player embutido mantém sempre play/pause, anterior/próximo (quando existem capítulos), velocidade, favorito e compartilhamento. O progresso e as marcações de tempo passam a formar um único grupo opcional, inicialmente oculto, só exibido quando `ResizeObserver` e a medição real de larguras confirmarem espaço útil para todo o grupo. Não usar somente um breakpoint fixo nem espremer um `input[type=range]` até zero mantendo-o visível.
+- A velocidade tem área própria fixa de 52 px, suportando `1×`, `1.25×`, `1.5×` e `2×`, sem entrar na coluna de favoritos. A interface de progresso segue sincronizada e acessível no player flutuante quando o progresso embutido está oculto.
+- Revisão obrigatória inclui teste automatizado de `getBoundingClientRect()` em Chromium real para vários viewports, com capítulos visíveis e duração longa, verificando colisões de retângulos e ausência de seek de largura zero.

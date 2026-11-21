@@ -1,0 +1,14 @@
+{
+  "name": "Editorial",
+  "slug": "editorial",
+  "lang": "pt-BR",
+  "description": "Arquivo de artigos.",
+  "eyebrow": "Seu assunto",
+  "introHeading": "Uma ideia por vez.",
+  "introBody": "Artigos para entender seu assunto, dos fundamentos à prática.",
+  "footerText": "Editorial · Arquivo de artigos",
+  "theme": "editorial",
+  "themeColor": "#277d69",
+  "repo": "",
+  "audioLabel": "Narração"
+}

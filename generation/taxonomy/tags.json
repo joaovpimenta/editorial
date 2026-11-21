@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "tags": {
+    "fundamentos": {
+      "label": "Fundamentos",
+      "description": "Conceitos estruturantes, vocabulário essencial e modelos mentais do assunto."
+    },
+    "arquitetura": {
+      "label": "Arquitetura",
+      "description": "Estrutura, fronteiras e decisões de desenho."
+    },
+    "confiabilidade": {
+      "label": "Confiabilidade",
+      "description": "Previsibilidade, contenção de falhas e operação consistente."
+    },
+    "resiliencia": {
+      "label": "Resiliência",
+      "description": "Tolerância a falhas, isolamento e degradação controlada."
+    }
+  },
+  "optionalMetadata": {
+    "updatedAt": "Inclua somente quando uma fonte verificável justificar a data da última alteração editorial; omita nos demais casos.",
+    "level": "Use apenas quando o nível do artigo for relevante para orientar a leitura: introdutorio, intermediario ou avancado.",
+    "series": "Use junto de seriesOrder quando o artigo integrar uma série editorial identificada por ID canônico.",
+    "seriesOrder": "Use junto de series; cada posição deve ser um inteiro positivo e único dentro da série.",
+    "prerequisites": "Liste apenas slugs existentes de artigos necessários como leitura anterior."
+  }
+}
